@@ -34,18 +34,10 @@ function parseNhs(html) {
           closing=pick(b,'search-result-closingDate'), contract=pick(b,'search-result-jobType'),
           pattern=pick(b,'search-result-workingPattern');
     const ref=href.match(/\/jobadvert\/([^?]+)/), id=ref?ref[1]:`${jobs.length}-${title.slice(0,20)}`;
-    // Check for Certificate of Sponsorship / Skilled Worker visa in block
-    const blockLower=b.toLowerCase();
-    const hasCos=blockLower.includes('certificate of sponsorship')||
-                 blockLower.includes('skilled worker visa')||
-                 blockLower.includes('visa sponsorship')||
-                 blockLower.includes('sponsorship available')||
-                 blockLower.includes('tier 2')||
-                 blockLower.includes('skilled worker');
     jobs.push({id,title,organisation:org,location:loc,salary:salary||undefined,
       band:getBand(`${title} ${salary}`),postedDate:posted||undefined,
       closingDate:closing||undefined,contractType:contract||undefined,
-      workingPattern:pattern||undefined,hasCos,url});
+      workingPattern:pattern||undefined,url});
   }
   return jobs;
 }
@@ -86,8 +78,6 @@ function filter(jobs, cat) {
     if(j.contractType&&!j.contractType.toLowerCase().includes('permanent')) return false;
     // No part time - full time only
     if(j.workingPattern&&!j.workingPattern.toLowerCase().includes('full')) return false;
-    // Certificate of Sponsorship required for Support Worker categories
-    if(cat.requireCos&&!j.hasCos) return false;
     return true;
   });
 }
@@ -118,13 +108,13 @@ const CX=['nurse','nursing','doctor','consultant','registrar','physician','surge
 const CATS=[
   {id:'admin-out',label:'Admin Outside London',kw:'administrator',loc:'',exLoc:'London',minBand:4,group:'Admin',inc:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'],exc:CX},
   {id:'admin-lon',label:'Admin in London',kw:'administrator',loc:'London',minBand:4,group:'Admin',inc:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'],exc:CX},
-  {id:'sw-lon',label:'Support Worker in London',kw:'support worker',loc:'London',minBand:3,requireCos:true,group:'Support Worker',inc:['support worker','healthcare support','health care support','care support','healthcare assistant','health care assistant','hca','hcsw','assistant practitioner'],exc:['registered nurse','staff nurse','charge nurse','ward manager','midwife','social worker']},
-  {id:'sw-out',label:'Support Worker Outside London',kw:'support worker',loc:'',exLoc:'London',minBand:3,requireCos:true,group:'Support Worker',inc:['support worker','healthcare support','health care support','care support','healthcare assistant','health care assistant','hca','hcsw','assistant practitioner'],exc:['registered nurse','staff nurse','charge nurse','ward manager','midwife','social worker']},
-  {id:'sw-wm',label:'Support Worker West Midlands',kw:'support worker',loc:'West Midlands',minBand:3,requireCos:true,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
-  {id:'sw-wales',label:'Support Worker in Wales',kw:'support worker',loc:'Wales',minBand:3,requireCos:true,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
-  {id:'sw-manc',label:'Support Worker Manchester',kw:'support worker',loc:'Manchester',minBand:3,requireCos:true,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
-  {id:'sw-wy',label:'Support Worker W Yorkshire',kw:'support worker',loc:'West Yorkshire',minBand:3,requireCos:true,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
-  {id:'sw-ey',label:'Support Worker E Yorkshire',kw:'support worker',loc:'East Yorkshire',minBand:3,requireCos:true,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
+  {id:'sw-lon',label:'Support Worker in London',kw:'support worker',loc:'London',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','health care support','care support','healthcare assistant','health care assistant','hca','hcsw','assistant practitioner'],exc:['registered nurse','staff nurse','charge nurse','ward manager','midwife','social worker']},
+  {id:'sw-out',label:'Support Worker Outside London',kw:'support worker',loc:'',exLoc:'London',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','health care support','care support','healthcare assistant','health care assistant','hca','hcsw','assistant practitioner'],exc:['registered nurse','staff nurse','charge nurse','ward manager','midwife','social worker']},
+  {id:'sw-wm',label:'Support Worker West Midlands',kw:'support worker',loc:'West Midlands',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
+  {id:'sw-wales',label:'Support Worker in Wales',kw:'support worker',loc:'Wales',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
+  {id:'sw-manc',label:'Support Worker Manchester',kw:'support worker',loc:'Manchester',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
+  {id:'sw-wy',label:'Support Worker W Yorkshire',kw:'support worker',loc:'West Yorkshire',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
+  {id:'sw-ey',label:'Support Worker E Yorkshire',kw:'support worker',loc:'East Yorkshire',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
   {id:'nurse',label:'Staff Nurse',kw:'staff nurse',loc:'',minBand:5,maxBand:5,group:'Nursing',inc:['staff nurse','registered nurse','rgn','rmn'],exc:['assistant','support worker','student','trainee','apprentice','bank']},
   {id:'mh-nurse',label:'Mental Health Nurse',kw:'mental health nurse',loc:'',group:'Nursing',inc:['mental health nurse','rmn','psychiatric nurse','mental health practitioner'],exc:['support worker','assistant','bank']},
   {id:'res-nurse',label:'Research Nurse',kw:'research nurse',loc:'',group:'Nursing',inc:['research nurse','clinical research nurse','senior research nurse']},
