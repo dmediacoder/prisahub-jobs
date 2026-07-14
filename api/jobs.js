@@ -1,10 +1,9 @@
-// Prisahub Jobs API - Vercel Serverless Function
-// NHS Jobs + Scotland NHS Jobs + Civil Service Jobs
+// Prisahub Jobs API - NHS England + NHS Scotland + Civil Service
 
 const CACHE = new Map();
 const TTL_MS = 30 * 60 * 1000;
 
-// ── HTML PARSING HELPERS ──────────────────────────────────────
+// ── HTML HELPERS ──────────────────────────────────────────────
 function decodeEntities(s) {
   return s.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
           .replace(/&quot;/g,'"').replace(/&#039;/g,"'").replace(/&#x27;/g,"'")
@@ -24,8 +23,8 @@ function pickAfterLabel(block, dataTest) {
   return stripTags(m[1]).replace(/^[A-Za-z ]+:\s*/,'').trim();
 }
 
-// ── PARSE NHS JOBS HTML ───────────────────────────────────────
-function parseNhsHtml(html) {
+// ── PARSE NHS JOBS HTML (works for both jobs.nhs.uk and jobs.scot.nhs.uk) ──
+function parseNhsHtml(html, baseUrl) {
   const jobs = [];
   const liRe = /<li[^>]*class="[^"]*\bsearch-result\b[^"]*"[^>]*>([\s\S]*?)(?=<li[^>]*class="[^"]*\bsearch-result\b|<\/ul)/g;
   let match;
@@ -36,9 +35,9 @@ function parseNhsHtml(html) {
     if (!tm) continue;
     const href  = decodeEntities(tm[1]);
     const title = stripTags(tm[2]);
-    const url   = `https://www.jobs.nhs.uk${href}`;
+    const url   = `${baseUrl}${href}`;
 
-    let organisation = 'NHS Scotland', location = 'Scotland';
+    let organisation = 'NHS', location = 'United Kingdom';
     const locBlock = block.match(/<div[^>]*data-test="search-result-location"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*class="nhsuk-grid-row/i);
     if (locBlock) {
       const inner = locBlock[1];
@@ -55,7 +54,7 @@ function parseNhsHtml(html) {
     const workingPattern = pickAfterLabel(block,'search-result-workingPattern');
     const band           = extractBand(`${title} ${salary}`);
     const refMatch       = href.match(/\/jobadvert\/([^?]+)/);
-    const id             = refMatch ? refMatch[1] : `${jobs.length}-${title.slice(0,20)}`;
+    const id             = refMatch ? `${refMatch[1]}` : `${jobs.length}-${title.slice(0,20)}`;
 
     jobs.push({ id, title, organisation, location,
       salary: salary||undefined, band,
@@ -68,57 +67,87 @@ function parseNhsHtml(html) {
 // ── PARSE CIVIL SERVICE JOBS HTML ─────────────────────────────
 function parseCivilServiceHtml(html) {
   const jobs = [];
-  // Civil Service Jobs uses different HTML structure
-  // Job cards are in <li> with class "search-results-job-box"
-  const liRe = /<li[^>]*class="[^"]*search-results-job-box[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
-  let match;
-  while ((match = liRe.exec(html)) !== null) {
-    const block = match[1];
 
-    // Title + URL
-    const tm = block.match(/<a[^>]*href="([^"]*\/jobs\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+  // Try multiple patterns for Civil Service job listings
+  // Pattern 1: search-results-job-box
+  const patterns = [
+    /<li[^>]*class="[^"]*search-results-job-box[^"]*"[^>]*>([\s\S]*?)<\/li>/gi,
+    /<div[^>]*class="[^"]*search-result[^"]*"[^>]*>([\s\S]*?)<\/div>\s*(?=<div[^>]*class="[^"]*search-result|<\/section)/gi,
+    /<article[^>]*>([\s\S]*?)<\/article>/gi,
+  ];
+
+  let blocks = [];
+  for (const pattern of patterns) {
+    const matches = [...html.matchAll(pattern)];
+    if (matches.length > 0) {
+      blocks = matches.map(m => m[1]);
+      break;
+    }
+  }
+
+  // Fallback: extract all job links from Civil Service site
+  if (blocks.length === 0) {
+    const linkRe = /<a[^>]*href="([^"]*(?:job_id|jcode|jobid)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let lm;
+    while ((lm = linkRe.exec(html)) !== null) {
+      const href  = lm[1];
+      const title = stripTags(lm[2]);
+      if (!title || title.length < 5 || title.length > 200) continue;
+      const url = href.startsWith('http') ? href : `https://www.civilservicejobs.service.gov.uk${href}`;
+      const id = `cs-${jobs.length}-${title.slice(0,20).replace(/\s/g,'-')}`;
+      jobs.push({ id, title, organisation:'Civil Service', location:'United Kingdom',
+        salary:undefined, band:undefined, grade:undefined,
+        postedDate:undefined, closingDate:undefined, contractType:'Permanent',
+        workingPattern:undefined, url });
+    }
+    return jobs;
+  }
+
+  for (const block of blocks) {
+    // Title
+    const tm = block.match(/<a[^>]*href="([^"]*)"[^>]*class="[^"]*job-title[^"]*"[^>]*>([\s\S]*?)<\/a>/i)
+            || block.match(/<h[23][^>]*>\s*<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i)
+            || block.match(/<a[^>]*href="([^"]*job[^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
     if (!tm) continue;
     const href  = tm[1];
     const title = stripTags(tm[2]);
-    if (!title || title.length < 3) continue;
+    if (!title || title.length < 3 || title.length > 200) continue;
     const url = href.startsWith('http') ? href : `https://www.civilservicejobs.service.gov.uk${href}`;
 
-    // Organisation
-    const orgM = block.match(/<div[^>]*class="[^"]*department[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
-              || block.match(/<span[^>]*class="[^"]*organisation[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+    // Organisation/Department
+    const orgM = block.match(/(?:department|organisation|employer)[^>]*>([^<]{3,80})</i)
+              || block.match(/<span[^>]*class="[^"]*(?:dept|department)[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
     const organisation = orgM ? stripTags(orgM[1]) : 'Civil Service';
 
     // Location
-    const locM = block.match(/<div[^>]*class="[^"]*location[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
+    const locM = block.match(/(?:location)[^>]*>([^<]{3,60})</i)
               || block.match(/<span[^>]*class="[^"]*location[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
     const location = locM ? stripTags(locM[1]) : 'United Kingdom';
 
     // Salary
-    const salM = block.match(/<div[^>]*class="[^"]*salary[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
-              || block.match(/£[\d,]+(?:\s*(?:to|-)\s*£[\d,]+)?/i);
-    const salary = salM ? (typeof salM === 'string' ? salM : stripTags(salM[1])) : undefined;
+    const salM = block.match(/£[\d,]+(?:\s*(?:to|-)\s*£[\d,]+)?(?:\s*per\s*\w+)?/i);
+    const salary = salM ? salM[0] : undefined;
 
-    // Closing date
-    const clM = block.match(/closing[^:]*:\s*([^<\n]{5,30})/i);
-    const closingDate = clM ? clM[1].trim() : undefined;
-
-    // Grade (EO, HEO, SEO etc)
+    // Grade
     const gradeM = block.match(/\b(AA|AO|EO|HEO|SEO|Grade\s*[67]|SCS\s*[123]|G[67])\b/i);
     const grade = gradeM ? gradeM[1].toUpperCase() : undefined;
 
-    const refMatch = href.match(/\/jobs\/(\d+)/);
-    const id = refMatch ? `cs-${refMatch[1]}` : `cs-${jobs.length}-${title.slice(0,20)}`;
+    // Closing date
+    const clM = block.match(/closing[^:]*:\s*([^<\n]{5,30})/i)
+             || block.match(/deadline[^:]*:\s*([^<\n]{5,30})/i);
+    const closingDate = clM ? clM[1].trim() : undefined;
 
+    const id = `cs-${jobs.length}-${title.slice(0,20).replace(/\s/g,'-')}`;
     jobs.push({ id, title, organisation, location,
-      salary: salary||undefined, grade,
-      postedDate: undefined, closingDate: closingDate||undefined,
-      contractType: 'Permanent', workingPattern: undefined, url });
+      salary, grade, band:undefined,
+      postedDate:undefined, closingDate,
+      contractType:'Permanent', workingPattern:undefined, url });
   }
   return jobs;
 }
 
-// ── FETCH NHS JOBS ────────────────────────────────────────────
-async function fetchNhsSearch(keyword, location, page=1) {
+// ── FETCH NHS ENGLAND ─────────────────────────────────────────
+async function fetchNhsEngland(keyword, location, page=1) {
   const params = new URLSearchParams({ keyword, language:'en' });
   if (location) params.set('location', location);
   if (page > 1)  params.set('page', String(page));
@@ -130,31 +159,111 @@ async function fetchNhsSearch(keyword, location, page=1) {
       'Accept-Language': 'en-GB,en;q=0.9',
     }
   });
-  if (!res.ok) throw new Error(`NHS Jobs ${res.status}`);
-  return parseNhsHtml(await res.text());
+  if (!res.ok) throw new Error(`NHS England ${res.status}`);
+  return parseNhsHtml(await res.text(), 'https://www.jobs.nhs.uk');
 }
 
-// ── FETCH CIVIL SERVICE JOBS ──────────────────────────────────
-async function fetchCivilService(keyword, page=1) {
+// ── FETCH NHS SCOTLAND ────────────────────────────────────────
+// Uses: https://apply.jobs.scot.nhs.uk/Home/Job
+async function fetchNhsScotland(keyword, page=1) {
   const params = new URLSearchParams({
-    'search[keyword]': keyword,
-    'search[order_by_closing_date]': '0',
-    'search[employment_types][]': 'permanent',
+    'SearchTerm': keyword,
+    'ContractType': 'Permanent',
+    'Page': String(page),
   });
-  if (page > 1) params.set('page', String(page));
+  const url = `https://apply.jobs.scot.nhs.uk/Home/Job?${params}`;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+        'Accept-Language': 'en-GB,en;q=0.9',
+      }
+    });
+    if (res.ok) {
+      const html = await res.text();
+      const jobs = parseScotlandHtml(html);
+      if (jobs.length > 0) return jobs;
+    }
+  } catch(e) {}
+  // Fallback to NHS England filtered by Scotland
+  return fetchNhsEngland(keyword, 'Scotland', page);
+}
+
+// ── PARSE NHS SCOTLAND HTML ───────────────────────────────────
+function parseScotlandHtml(html) {
+  const jobs = [];
+  // Scotland site uses standard job listing patterns
+  // Try to extract job cards from their HTML
+  
+  // Pattern 1: look for job links with /Home/JobDetail or similar
+  const linkRe = /<a[^>]*href="([^"]*(?:JobDetail|jobdetail|Job\/\d+|vacancy)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+  const seen = new Set();
+  let m;
+  while ((m = linkRe.exec(html)) !== null) {
+    const href  = m[1];
+    const title = stripTags(m[2]).trim();
+    if (!title || title.length < 4 || title.length > 200) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+    
+    const url = href.startsWith('http') ? href : `https://apply.jobs.scot.nhs.uk${href}`;
+    
+    // Try to find context around this link for org/location/salary
+    const pos   = html.indexOf(m[0]);
+    const chunk = html.substring(Math.max(0, pos-500), pos+500);
+    
+    const salM  = chunk.match(/£[\d,]+(?:\s*(?:to|-)\s*£[\d,]+)?(?:\s*per\s*\w+)?/i);
+    const salary = salM ? salM[0] : undefined;
+    const band   = extractBand(`${title} ${salary||''}`);
+    
+    // Location from nearby text
+    const locM  = chunk.match(/(?:location|base)[^>:]*[:>]\s*([A-Z][^<
+,]{3,40})/i);
+    const location = locM ? stripTags(locM[1]).trim() : 'Scotland';
+    
+    // Organisation
+    const orgM  = chunk.match(/(?:employer|board|trust|health board)[^>:]*[:>]\s*([A-Z][^<
+,]{3,60})/i);
+    const organisation = orgM ? stripTags(orgM[1]).trim() : 'NHS Scotland';
+    
+    const id = `scot-${jobs.length}-${title.slice(0,20).replace(/\s/g,'-')}`;
+    jobs.push({ id, title, organisation, location, salary, band,
+      postedDate:undefined, closingDate:undefined,
+      contractType:'Permanent', workingPattern:undefined, url });
+  }
+  
+  // If no jobs found with pattern 1, try generic NHS html parser
+  if (jobs.length === 0) {
+    return parseNhsHtml(html, 'https://apply.jobs.scot.nhs.uk');
+  }
+  return jobs;
+}
+
+// ── FETCH CIVIL SERVICE ───────────────────────────────────────
+// Uses: https://www.civilservicejobs.service.gov.uk/csr/jobs.cgi
+async function fetchCivilService(keyword, page=1) {
+  // Civil Service Jobs search parameters
+  const params = new URLSearchParams({
+    'pagetype': 'jobsearch',
+    'keyword': keyword,
+    'page': String(page),
+    'pagesize': '20',
+  });
   const url = `https://www.civilservicejobs.service.gov.uk/csr/jobs.cgi?${params}`;
   const res = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml',
+      'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
       'Accept-Language': 'en-GB,en;q=0.9',
+      'Referer': 'https://www.civilservicejobs.service.gov.uk/',
     }
   });
   if (!res.ok) throw new Error(`Civil Service Jobs ${res.status}`);
   return parseCivilServiceHtml(await res.text());
 }
 
-// ── FILTERS ───────────────────────────────────────────────────
+// ── APPLY FILTERS ─────────────────────────────────────────────
 function applyFilters(jobs, opts) {
   return jobs.filter(j => {
     if (opts.minBand && j.band !== undefined && j.band < opts.minBand) return false;
@@ -167,26 +276,24 @@ function applyFilters(jobs, opts) {
     }
     if (opts.titleExcludes?.some(t => title.includes(t.toLowerCase()))) return false;
 
-    // NHS org check
     if (opts.source === 'nhs') {
       const org = j.organisation.toLowerCase();
       const isNHS = org.includes('nhs') || org.includes('health board') ||
                     org.includes('hospital') || org.includes('trust') ||
                     org.includes('integrated care') || org.includes('ambulance') ||
-                    org.includes('ips employment') || org.includes('primary care') ||
-                    org.includes('scotland') || org.includes('highland') ||
-                    org.includes('grampian') || org.includes('lothian') ||
-                    org.includes('tayside') || org.includes('fife') ||
-                    org.includes('borders') || org.includes('forth valley') ||
-                    org.includes('ayrshire') || org.includes('lanarkshire') ||
-                    org.includes('greater glasgow') || org.includes('dumfries');
+                    org.includes('primary care') || org.includes('health and social') ||
+                    org.includes('highland') || org.includes('grampian') ||
+                    org.includes('lothian') || org.includes('tayside') ||
+                    org.includes('lanarkshire') || org.includes('ayrshire') ||
+                    org.includes('borders') || org.includes('fife') ||
+                    org.includes('forth valley') || org.includes('greater glasgow') ||
+                    org.includes('dumfries') || org.includes('orkney') ||
+                    org.includes('shetland') || org.includes('western isles');
       if (!isNHS) return false;
+      const hay = `${j.title} ${j.contractType??''} ${j.workingPattern??''}`.toLowerCase();
+      if (/\b(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)\b/.test(hay)) return false;
+      if (j.contractType && !j.contractType.toLowerCase().includes('permanent')) return false;
     }
-
-    // No bank/fixed-term/locum/temporary
-    const hay = `${j.title} ${j.contractType??''} ${j.workingPattern??''}`.toLowerCase();
-    if (/\b(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)\b/.test(hay)) return false;
-    if (j.contractType && !j.contractType.toLowerCase().includes('permanent')) return false;
 
     return true;
   });
@@ -198,7 +305,7 @@ const CLINICAL_EXCLUDES = ['nurse','nursing','doctor','consultant','registrar','
 // ── ALL CATEGORIES ────────────────────────────────────────────
 const CATEGORIES = [
 
-  // ── NHS ENGLAND CATEGORIES ───────────────────────────────────
+  // NHS ENGLAND
   { id:'admin-outside-london', label:'Admin Outside London', tab:'NHS', source:'nhs',
     keyword:'administrator', excludeLocation:'London', minBand:4, group:'Admin',
     titleIncludes:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'],
@@ -242,17 +349,16 @@ const CATEGORIES = [
   { id:'mental-health-nurse', label:'Mental Health Nurse', tab:'NHS', source:'nhs',
     keyword:'mental health nurse', group:'Nursing',
     titleIncludes:['mental health nurse','rmn','psychiatric nurse','mental health practitioner'],
-    titleExcludes:['support worker','assistant','bank','locum'] },
+    titleExcludes:['support worker','assistant','bank'] },
   { id:'research-nurse', label:'Research Nurse', tab:'NHS', source:'nhs',
     keyword:'research nurse', group:'Nursing',
-    titleIncludes:['research nurse','clinical research nurse','senior research nurse'],
-    titleExcludes:['bank','locum'] },
+    titleIncludes:['research nurse','clinical research nurse','senior research nurse'] },
   { id:'clinical-fellow', label:'Clinical Fellow', tab:'NHS', source:'nhs',
     keyword:'clinical fellow', group:'Clinical',
     titleIncludes:['clinical fellow','fellow','fy1','fy2','fy3','st1','st2','st3','st4','ct1','ct2','trust doctor','specialty doctor','specialty registrar','foundation year','junior clinical','sas doctor','associate specialist'] },
   { id:'clinical-coder', label:'Clinical Coder', tab:'NHS', source:'nhs',
     keyword:'clinical coder', group:'Clinical',
-    titleIncludes:['clinical coder','clinical coding','coding auditor','clinical coding manager','senior clinical coder','lead clinical coder'] },
+    titleIncludes:['clinical coder','clinical coding','coding auditor','senior clinical coder','lead clinical coder'] },
   { id:'dietician', label:'Dietician', tab:'NHS', source:'nhs',
     keyword:'dietitian', group:'Clinical',
     titleIncludes:['dietitian','dietician'] },
@@ -309,110 +415,108 @@ const CATEGORIES = [
     keyword:'pathway coordinator', group:'Professional',
     titleIncludes:['pathway coordinator','patient coordinator','care coordinator','referral coordinator','discharge coordinator','admissions coordinator','outpatient coordinator','appointments coordinator','waiting list coordinator','access coordinator','service coordinator','booking coordinator','patient flow'] },
 
-  // ── SCOTLAND NHS CATEGORIES ───────────────────────────────────
-  { id:'scot-admin', label:'Admin Roles', tab:'SCOTLAND', source:'nhs',
-    keyword:'administrator scotland', location:'Scotland', minBand:4, group:'Admin',
-    titleIncludes:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'],
+  // NHS SCOTLAND - uses jobs.scot.nhs.uk
+  { id:'scot-admin', label:'Admin Roles', tab:'SCOTLAND', source:'scotland',
+    keyword:'administrator', group:'Admin',
+    titleIncludes:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical'],
     titleExcludes:CLINICAL_EXCLUDES },
-  { id:'scot-sw', label:'Support Worker', tab:'SCOTLAND', source:'nhs',
-    keyword:'support worker', location:'Scotland', minBand:3, group:'Support Worker',
+  { id:'scot-sw', label:'Support Worker', tab:'SCOTLAND', source:'scotland',
+    keyword:'support worker', group:'Support Worker',
     titleIncludes:['support worker','healthcare support','healthcare assistant','hca','hcsw','assistant practitioner'],
     titleExcludes:['registered nurse','staff nurse','midwife','social worker'] },
-  { id:'scot-staff-nurse', label:'Staff Nurse', tab:'SCOTLAND', source:'nhs',
-    keyword:'staff nurse', location:'Scotland', minBand:5, maxBand:5, group:'Nursing',
+  { id:'scot-staff-nurse', label:'Staff Nurse', tab:'SCOTLAND', source:'scotland',
+    keyword:'staff nurse', minBand:5, maxBand:5, group:'Nursing',
     titleIncludes:['staff nurse','registered nurse','rgn','rmn'],
     titleExcludes:['assistant','support worker','student','bank'] },
-  { id:'scot-mh-nurse', label:'Mental Health Nurse', tab:'SCOTLAND', source:'nhs',
-    keyword:'mental health nurse', location:'Scotland', group:'Nursing',
+  { id:'scot-mh-nurse', label:'Mental Health Nurse', tab:'SCOTLAND', source:'scotland',
+    keyword:'mental health nurse', group:'Nursing',
     titleIncludes:['mental health nurse','rmn','psychiatric nurse','mental health practitioner'],
     titleExcludes:['support worker','assistant','bank'] },
-  { id:'scot-clinical-fellow', label:'Clinical Fellow', tab:'SCOTLAND', source:'nhs',
-    keyword:'clinical fellow', location:'Scotland', group:'Clinical',
+  { id:'scot-clinical-fellow', label:'Clinical Fellow', tab:'SCOTLAND', source:'scotland',
+    keyword:'clinical fellow', group:'Clinical',
     titleIncludes:['clinical fellow','fellow','fy1','fy2','fy3','st1','st2','st3','trust doctor','specialty doctor','specialty registrar','foundation year','sas doctor'] },
-  { id:'scot-social-worker', label:'Social Worker', tab:'SCOTLAND', source:'nhs',
-    keyword:'social worker', location:'Scotland', group:'Clinical',
+  { id:'scot-social-worker', label:'Social Worker', tab:'SCOTLAND', source:'scotland',
+    keyword:'social worker', group:'Clinical',
     titleIncludes:['social worker','amhp','approved mental health professional'],
     titleExcludes:['support worker','healthcare assistant'] },
-  { id:'scot-dietician', label:'Dietician', tab:'SCOTLAND', source:'nhs',
-    keyword:'dietitian', location:'Scotland', group:'Clinical',
+  { id:'scot-dietician', label:'Dietician', tab:'SCOTLAND', source:'scotland',
+    keyword:'dietitian', group:'Clinical',
     titleIncludes:['dietitian','dietician'] },
-  { id:'scot-microbiology', label:'Microbiology', tab:'SCOTLAND', source:'nhs',
-    keyword:'microbiology', location:'Scotland', group:'Clinical',
+  { id:'scot-microbiology', label:'Microbiology', tab:'SCOTLAND', source:'scotland',
+    keyword:'microbiology', group:'Clinical',
     titleIncludes:['microbiology','microbiologist'] },
-  { id:'scot-phlebotomist', label:'Phlebotomist', tab:'SCOTLAND', source:'nhs',
-    keyword:'phlebotomist', location:'Scotland', group:'Clinical',
+  { id:'scot-phlebotomist', label:'Phlebotomist', tab:'SCOTLAND', source:'scotland',
+    keyword:'phlebotomist', group:'Clinical',
     titleIncludes:['phlebotomist','phlebotomy'] },
-  { id:'scot-research', label:'Research Assistant', tab:'SCOTLAND', source:'nhs',
-    keyword:'research assistant', location:'Scotland', group:'Clinical',
+  { id:'scot-research', label:'Research Assistant', tab:'SCOTLAND', source:'scotland',
+    keyword:'research assistant', group:'Clinical',
     titleIncludes:['research assistant','research associate','research practitioner','clinical research','trial coordinator'] },
-  { id:'scot-data-analyst', label:'Data Analyst', tab:'SCOTLAND', source:'nhs',
-    keyword:'data analyst', location:'Scotland', group:'Professional',
+  { id:'scot-data-analyst', label:'Data Analyst', tab:'SCOTLAND', source:'scotland',
+    keyword:'data analyst', group:'Professional',
     titleIncludes:['data analyst','data analytics','information analyst','reporting analyst','data engineer','data scientist'] },
-  { id:'scot-bi', label:'BI Analyst', tab:'SCOTLAND', source:'nhs',
-    keyword:'business intelligence analyst', location:'Scotland', group:'Professional',
+  { id:'scot-bi', label:'BI Analyst', tab:'SCOTLAND', source:'scotland',
+    keyword:'business intelligence analyst', group:'Professional',
     titleIncludes:['business intelligence','bi analyst','bi developer','power bi','tableau'] },
-  { id:'scot-finance', label:'Finance', tab:'SCOTLAND', source:'nhs',
-    keyword:'finance officer', location:'Scotland', group:'Professional',
+  { id:'scot-finance', label:'Finance', tab:'SCOTLAND', source:'scotland',
+    keyword:'finance officer', group:'Professional',
     titleIncludes:['finance officer','finance manager','finance assistant','management accountant','financial accountant','payroll'] },
-  { id:'scot-hr', label:'HR', tab:'SCOTLAND', source:'nhs',
-    keyword:'human resources', location:'Scotland', group:'Professional',
+  { id:'scot-hr', label:'HR', tab:'SCOTLAND', source:'scotland',
+    keyword:'human resources', group:'Professional',
     titleIncludes:['hr advisor','hr officer','hr assistant','hr manager','human resources','people advisor','workforce','resourcing'] },
-  { id:'scot-it', label:'IT / Engineering', tab:'SCOTLAND', source:'nhs',
-    keyword:'IT engineer', location:'Scotland', group:'Professional',
-    titleIncludes:['it engineer','network engineer','software developer','software engineer','infrastructure engineer','cyber security','cloud engineer','devops','solutions architect','technical architect','ict engineer'],
+  { id:'scot-it', label:'IT / Engineering', tab:'SCOTLAND', source:'scotland',
+    keyword:'IT engineer', group:'Professional',
+    titleIncludes:['it engineer','network engineer','software developer','software engineer','infrastructure engineer','cyber security','cloud engineer','devops','solutions architect','ict engineer'],
     titleExcludes:['clinical','biomedical'] },
-  { id:'scot-pm', label:'Project Manager', tab:'SCOTLAND', source:'nhs',
-    keyword:'project manager', location:'Scotland', group:'Professional',
+  { id:'scot-pm', label:'Project Manager', tab:'SCOTLAND', source:'scotland',
+    keyword:'project manager', group:'Professional',
     titleIncludes:['project manager','programme manager','project lead','project director','delivery manager','project officer'] },
-  { id:'scot-ba', label:'Business Analyst', tab:'SCOTLAND', source:'nhs',
-    keyword:'business analyst', location:'Scotland', group:'Professional',
+  { id:'scot-ba', label:'Business Analyst', tab:'SCOTLAND', source:'scotland',
+    keyword:'business analyst', group:'Professional',
     titleIncludes:['business analyst','systems analyst','process analyst','transformation analyst'] },
-  { id:'scot-coordinator', label:'Coordinator', tab:'SCOTLAND', source:'nhs',
-    keyword:'pathway coordinator', location:'Scotland', group:'Professional',
+  { id:'scot-coordinator', label:'Coordinator', tab:'SCOTLAND', source:'scotland',
+    keyword:'pathway coordinator', group:'Professional',
     titleIncludes:['pathway coordinator','patient coordinator','care coordinator','referral coordinator','discharge coordinator','admissions coordinator','outpatient coordinator','appointments coordinator','waiting list coordinator','access coordinator'] },
 
-  // ── CIVIL SERVICE CATEGORIES ──────────────────────────────────
-  // Admin roles EO to SEO
+  // CIVIL SERVICE
   { id:'cs-eo-admin', label:'Admin Officer (EO)', tab:'CIVIL SERVICE', source:'civil',
-    keyword:'administrative officer EO', group:'Admin',
-    titleIncludes:['administrative officer','admin officer','executive officer','eo grade','personal secretary','team leader','office manager','correspondence officer','case officer','casework officer'],
-    titleExcludes:['senior executive','heo','seo','grade 6','grade 7','senior manager'] },
+    keyword:'administrative officer EO executive officer', group:'Admin',
+    titleIncludes:['administrative officer','admin officer','executive officer','personal secretary','team leader','office manager','case officer','casework officer','correspondence officer','processing officer','operations officer'],
+    titleExcludes:['senior executive officer','seo','higher executive','heo','grade 6','grade 7','deputy director'] },
   { id:'cs-heo-admin', label:'Higher Admin Officer (HEO)', tab:'CIVIL SERVICE', source:'civil',
     keyword:'higher executive officer HEO', group:'Admin',
-    titleIncludes:['higher executive officer','heo','senior admin','senior officer','team manager','senior case officer','senior casework','policy officer','senior correspondence'],
-    titleExcludes:['senior executive officer','seo','grade 6','grade 7'] },
+    titleIncludes:['higher executive officer','heo','senior administrative','senior admin officer','senior case officer','senior casework','policy officer','senior officer','team manager','senior correspondence','senior operations'],
+    titleExcludes:['senior executive officer','seo','grade 6','grade 7','deputy director'] },
   { id:'cs-seo-admin', label:'Senior Admin Officer (SEO)', tab:'CIVIL SERVICE', source:'civil',
     keyword:'senior executive officer SEO', group:'Admin',
-    titleIncludes:['senior executive officer','seo','senior manager','senior policy','team leader seo','senior coordinator','senior operations'],
-    titleExcludes:['grade 6','grade 7','deputy director'] },
-  // Tech roles
+    titleIncludes:['senior executive officer','seo','senior manager','senior policy manager','senior operations manager','team leader seo','senior coordinator'],
+    titleExcludes:['grade 6','grade 7','deputy director','director'] },
   { id:'cs-software-dev', label:'Software Developer', tab:'CIVIL SERVICE', source:'civil',
-    keyword:'software developer civil service', group:'Technology',
-    titleIncludes:['software developer','software engineer','developer','engineer','full stack','backend','frontend','devops','cloud engineer','platform engineer','site reliability'] },
+    keyword:'software developer engineer government', group:'Technology',
+    titleIncludes:['software developer','software engineer','developer','full stack','backend developer','frontend developer','devops engineer','cloud engineer','platform engineer','site reliability engineer','web developer','application developer'] },
   { id:'cs-data-analyst', label:'Data Analyst', tab:'CIVIL SERVICE', source:'civil',
-    keyword:'data analyst civil service', group:'Technology',
-    titleIncludes:['data analyst','data analytics','data engineer','data scientist','business intelligence','bi analyst','power bi','tableau','reporting analyst','information analyst'] },
+    keyword:'data analyst government civil service', group:'Technology',
+    titleIncludes:['data analyst','data analytics','data engineer','data scientist','business intelligence analyst','bi analyst','power bi','tableau','reporting analyst','information analyst','performance analyst'] },
   { id:'cs-cyber', label:'Cyber Security', tab:'CIVIL SERVICE', source:'civil',
-    keyword:'cyber security civil service', group:'Technology',
-    titleIncludes:['cyber security','cybersecurity','information security','security analyst','security engineer','soc analyst','penetration tester','security architect'] },
+    keyword:'cyber security government', group:'Technology',
+    titleIncludes:['cyber security','cybersecurity','information security','security analyst','security engineer','soc analyst','penetration tester','security architect','threat intelligence'] },
   { id:'cs-it-support', label:'IT Support', tab:'CIVIL SERVICE', source:'civil',
-    keyword:'IT support civil service', group:'Technology',
-    titleIncludes:['it support','ict support','service desk','helpdesk','desktop support','1st line','2nd line','3rd line','infrastructure engineer','network engineer','systems administrator'] },
+    keyword:'IT support service desk government', group:'Technology',
+    titleIncludes:['it support','ict support','service desk','helpdesk','desktop support','1st line','2nd line','3rd line','infrastructure engineer','network engineer','systems administrator','it analyst'] },
+  { id:'cs-digital', label:'Digital & Technology', tab:'CIVIL SERVICE', source:'civil',
+    keyword:'digital technology DDAT product manager government', group:'Technology',
+    titleIncludes:['digital','product manager','product owner','delivery manager','agile','scrum master','ux designer','user researcher','interaction designer','content designer','technical lead','ddat'] },
   { id:'cs-architecture', label:'IT Architecture', tab:'CIVIL SERVICE', source:'civil',
-    keyword:'solutions architect civil service', group:'Technology',
-    titleIncludes:['architect','solutions architect','enterprise architect','technical architect','cloud architect','network architect','security architect'] },
-  { id:'cs-ddat', label:'Digital & Technology', tab:'CIVIL SERVICE', source:'civil',
-    keyword:'digital technology DDAT civil service', group:'Technology',
-    titleIncludes:['digital','technology','ddat','product manager','product owner','delivery manager','agile','scrum','technical','ux designer','user researcher','interaction designer','content designer'] },
+    keyword:'solutions architect enterprise architect government', group:'Technology',
+    titleIncludes:['architect','solutions architect','enterprise architect','technical architect','cloud architect','network architect','security architect','systems architect'] },
   { id:'cs-project-manager', label:'Project Manager', tab:'CIVIL SERVICE', source:'civil',
-    keyword:'project manager civil service', group:'Technology',
-    titleIncludes:['project manager','programme manager','project lead','delivery manager','project officer','pmo','portfolio manager'] },
+    keyword:'project manager programme manager government', group:'Technology',
+    titleIncludes:['project manager','programme manager','project lead','delivery manager','project officer','pmo','portfolio manager','project director'] },
   { id:'cs-business-analyst', label:'Business Analyst', tab:'CIVIL SERVICE', source:'civil',
-    keyword:'business analyst civil service', group:'Technology',
-    titleIncludes:['business analyst','systems analyst','process analyst','transformation analyst','change analyst'] },
+    keyword:'business analyst government civil service', group:'Technology',
+    titleIncludes:['business analyst','systems analyst','process analyst','transformation analyst','change analyst','process improvement'] },
 ];
 
-// ── FETCH AND FILTER ONE CATEGORY ─────────────────────────────
+// ── FETCH ONE CATEGORY ────────────────────────────────────────
 async function fetchCategory(cat) {
   const cacheKey = cat.id;
   const cached   = CACHE.get(cacheKey);
@@ -423,12 +527,16 @@ async function fetchCategory(cat) {
     const all  = [];
 
     for (let p = 1; p <= 20; p++) {
-      let pageJobs;
-      if (cat.source === 'civil') {
+      let pageJobs = [];
+
+      if (cat.source === 'scotland') {
+        pageJobs = await fetchNhsScotland(cat.keyword, p);
+      } else if (cat.source === 'civil') {
         pageJobs = await fetchCivilService(cat.keyword, p);
       } else {
-        pageJobs = await fetchNhsSearch(cat.keyword, cat.location, p);
+        pageJobs = await fetchNhsEngland(cat.keyword, cat.location, p);
       }
+
       if (!pageJobs.length) break;
       let added = 0;
       for (const j of pageJobs) {
@@ -443,7 +551,7 @@ async function fetchCategory(cat) {
       excludeLocation: cat.excludeLocation,
       titleIncludes: cat.titleIncludes,
       titleExcludes: cat.titleExcludes,
-      source: cat.source,
+      source: cat.source === 'civil' ? 'civil' : 'nhs',
     });
 
     CACHE.set(cacheKey, { at: Date.now(), jobs: filtered });
@@ -465,7 +573,6 @@ export default async function handler(req, res) {
   const pg      = parseInt(page);
   const perPage = 20;
 
-  // Filter categories by tab and optionally by category
   let targets = CATEGORIES.filter(c => c.tab === tab);
   if (category && category !== 'All') {
     targets = targets.filter(c => c.label === category || c.id === category);
