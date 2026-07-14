@@ -98,6 +98,8 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
 .view-btn{padding:8px 14px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;white-space:nowrap;transition:all .17s;box-shadow:0 2px 8px rgba(59,130,246,.25)}
 .view-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(59,130,246,.35);color:#fff}
 .view-btn.cs-btn{background:linear-gradient(135deg,#dc2626,#991b1b)}
+.view-btn.scot-btn{background:linear-gradient(135deg,#1a56db,#0f4c8a)}
+.link-card{border-style:dashed}
 .loading-wrap{text-align:center;padding:70px 20px}
 .spinner{width:38px;height:38px;border:3px solid #e2e8f0;border-top-color:#3b82f6;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -135,7 +137,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
   <!-- TAB BUTTONS -->
   <div class="tab-bar">
     <button class="tab-btn active" data-tab="NHS" onclick="switchTab('NHS',this)">🏥 NHS</button>
-    <button class="tab-btn tab-scot" data-tab="SCOTLAND" onclick="switchTab('SCOTLAND',this)">🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scotland</button>
+    <button class="tab-btn tab-scot" data-tab="SCOTLAND" onclick="switchTab('SCOTLAND',this)">🏴 Scotland</button>
     <button class="tab-btn tab-cs" data-tab="CIVIL SERVICE" onclick="switchTab('CIVIL SERVICE',this)">🏛️ Civil Service</button>
   </div>
 
@@ -202,7 +204,7 @@ var TAB_CATS = {
     {id:'coordinator',          label:'Coordinator',                     icon:'🗂️',g:'Professional'},
   ],
   'SCOTLAND': [
-    {id:'All',              label:'All Scotland Jobs',      icon:'🏴󠁧󠁢󠁳󠁣󠁴󠁿',g:null},
+    {id:'All',              label:'All Scotland Jobs',      icon:'🏴',g:null},
     {id:'scot-admin',       label:'Admin Roles',            icon:'📋',g:'Admin'},
     {id:'scot-sw',          label:'Support Worker',         icon:'🤝',g:'Support Worker'},
     {id:'scot-staff-nurse', label:'Staff Nurse',            icon:'👩‍⚕️',g:'Nursing'},
@@ -314,12 +316,52 @@ function render() {
   var el=document.getElementById('jlist');
   var tabCls=_tab==='SCOTLAND'?'scot':_tab==='CIVIL SERVICE'?'cs':'nhs';
   var isCivil=_tab==='CIVIL SERVICE';
+  var isLinks=_tab==='SCOTLAND'||_tab==='CIVIL SERVICE';
+
   if(!_jobs.length){
     el.innerHTML='<div class="empty"><span class="empty-e">🔍</span><h3>No vacancies right now</h3><p>'
-      +(_kw?'No results for "'+e(_kw)+'". Try a different search.':'No permanent jobs in this category right now. Check back soon — new jobs are posted daily.')
+      +(_kw?'No results for "'+e(_kw)+'". Try a different search.':'No jobs in this category right now. Check back soon.')
       +'</p></div>';
     return;
   }
+
+  // Scotland and Civil Service show browse cards linking to their sites
+  if(isLinks){
+    el.innerHTML=_jobs.map(function(j,i){
+      var tgs='';
+      if(j.grade) tgs+='<span class="tag t-grade">'+e(j.grade)+'</span>';
+      if(j.band)  tgs+='<span class="tag t-band">'+e(j.band)+'</span>';
+      if(j.salary)tgs+='<span class="tag t-salary">'+e(j.salary)+'</span>';
+      tgs+='<span class="tag t-perm">Permanent</span>';
+      if(j.category&&_cat==='All') tgs+='<span class="tag t-cat">'+e(j.category)+'</span>';
+      var btnLabel=isCivil?'Browse Jobs →':'Browse NHS Scotland →';
+      var btnCls=isCivil?'view-btn cs-btn':'view-btn scot-btn';
+      return '<div class="job-card '+tabCls+' link-card">'
+        +'<div class="job-logo">'+EM[i%EM.length]+'</div>'
+        +'<div class="job-body">'
+          +'<div class="job-title">'+e(j.title)+'</div>'
+          +'<div class="job-org">'+e(j.organisation)+'</div>'
+          +'<div class="job-meta"><span>📍 '+e(j.location)+'</span></div>'
+          +'<div class="job-tags">'+tgs+'</div>'
+        +'</div>'
+        +'<div class="job-actions">'
+          +'<button class="cp-btn" data-url="'+e(j.url)+'" title="Copy link">📋</button>'
+          +'<a href="'+e(j.url)+'" target="_blank" class="'+btnCls+'">'+btnLabel+'</a>'
+        +'</div>'
+      +'</div>';
+    }).join('');
+    el.querySelectorAll('.cp-btn').forEach(function(b){
+      b.addEventListener('click',function(){
+        navigator.clipboard.writeText(b.dataset.url).then(function(){
+          b.textContent='✅';b.classList.add('done');
+          setTimeout(function(){b.textContent='📋';b.classList.remove('done');},2000);
+        });
+      });
+    });
+    return;
+  }
+
+  // NHS England - show full job cards
   el.innerHTML=_jobs.map(function(j,i){
     var tgs='';
     if(j.grade)         tgs+='<span class="tag t-grade">'+e(j.grade)+'</span>';
@@ -341,7 +383,7 @@ function render() {
       +'</div>'
       +'<div class="job-actions">'
         +'<button class="cp-btn" data-url="'+e(j.url)+'" title="Copy link">📋</button>'
-        +'<a href="'+e(j.url)+'" target="_blank" class="view-btn'+(isCivil?' cs-btn':'')+'">View Role →</a>'
+        +'<a href="'+e(j.url)+'" target="_blank" class="view-btn">View Role →</a>'
       +'</div>'
     +'</div>';
   }).join('');
