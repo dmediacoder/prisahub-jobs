@@ -1,0 +1,32 @@
+export default function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin','*');
+  res.status(200).json([
+    {id:'All',                  label:'All Jobs',                       icon:'🏥', group:null},
+    {id:'admin-outside-london', label:'Admin Outside London',           icon:'📋', group:'Admin'},
+    {id:'admin-london',         label:'Admin in London',                icon:'📋', group:'Admin'},
+    {id:'sw-london',            label:'Support Worker – London',        icon:'🤝', group:'Support Worker'},
+    {id:'sw-outside-london',    label:'Support Worker – Outside London',icon:'🤝', group:'Support Worker'},
+    {id:'sw-west-midlands',     label:'Support Worker – West Midlands', icon:'🤝', group:'Support Worker'},
+    {id:'sw-wales',             label:'Support Worker – Wales',         icon:'🤝', group:'Support Worker'},
+    {id:'sw-manchester',        label:'Support Worker – Manchester',    icon:'🤝', group:'Support Worker'},
+    {id:'sw-west-yorkshire',    label:'Support Worker – W Yorkshire',   icon:'🤝', group:'Support Worker'},
+    {id:'sw-east-yorkshire',    label:'Support Worker – E Yorkshire',   icon:'🤝', group:'Support Worker'},
+    {id:'clinical-fellow',      label:'Clinical Fellow',                icon:'🩺', group:'Clinical'},
+    {id:'dietician',            label:'Dietician',                      icon:'🥗', group:'Clinical'},
+    {id:'microbiology',         label:'Microbiology',                   icon:'🔬', group:'Clinical'},
+    {id:'phlebotomist',         label:'Phlebotomist Leader',            icon:'💉', group:'Clinical'},
+    {id:'research-assistant',   label:'Research Assistant',             icon:'📊', group:'Clinical'},
+    {id:'social-worker',        label:'Social Worker',                  icon:'🫂', group:'Clinical'},
+    {id:'data-analyst',         label:'Data Analyst',                   icon:'📈', group:'Professional'},
+    {id:'bi-analyst',           label:'BI Analyst',                     icon:'🧠', group:'Professional'},
+    {id:'financial-analyst',    label:'Financial Analyst',              icon:'💹', group:'Professional'},
+    {id:'desk-analyst',         label:'Desk Analyst',                   icon:'💻', group:'Professional'},
+    {id:'finance',              label:'Finance',                        icon:'💰', group:'Professional'},
+    {id:'hr',                   label:'HR',                             icon:'👥', group:'Professional'},
+    {id:'it-engineering',       label:'IT / Engineering',               icon:'⚙️', group:'Professional'},
+    {id:'project-manager',      label:'Project Manager',                icon:'📌', group:'Professional'},
+    {id:'business-analyst',     label:'Business Analyst',               icon:'📉', group:'Professional'},
+    {id:'logistics',            label:'Logistics',                      icon:'🚚', group:'Professional'},
+    {id:'coordinator',          label:'Coordinator',                    icon:'🗂️', group:'Professional'},
+  ]);
+}
