@@ -76,8 +76,12 @@ function filter(jobs, cat) {
     if(/\b(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)\b/.test(hay)) return false;
     // Permanent only
     if(j.contractType&&!j.contractType.toLowerCase().includes('permanent')) return false;
-    // No part time - full time only
-    if(j.workingPattern&&!j.workingPattern.toLowerCase().includes('full')) return false;
+    // Reject if explicitly says part time or part-time
+    const wp=(j.workingPattern||'').toLowerCase();
+    if(wp&&!wp.includes('full')&&(wp.includes('part')||wp.includes('term time'))) return false;
+    // Reject fixed term, bank, locum, temporary in title or contract
+    const titleLow=j.title.toLowerCase();
+    if(titleLow.includes('fixed term')||titleLow.includes('bank')||titleLow.includes('locum')||titleLow.includes('part time')||titleLow.includes('part-time')) return false;
     return true;
   });
 }
