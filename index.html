@@ -1,424 +1,566 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Prisahub — Live NHS & Civil Service Job Links</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;font-size:14px}
-.shell{display:flex;min-height:100vh}
-.sidebar{width:265px;flex-shrink:0;background:linear-gradient(160deg,#0f172a 0%,#1e3a5f 100%);position:fixed;top:0;left:0;bottom:0;overflow-y:auto;z-index:100;display:flex;flex-direction:column}
-.sb-header{padding:18px 16px 12px;border-bottom:1px solid rgba(255,255,255,.08)}
-.sb-brand{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-.sb-icon{width:36px;height:36px;background:linear-gradient(135deg,#3b82f6,#6366f1);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
-.sb-name{font-size:15px;font-weight:800;color:#fff;letter-spacing:-.3px}
-.sb-name span{color:#93c5fd}
-.sb-sub{font-size:9.5px;color:rgba(255,255,255,.35);margin-top:1px;letter-spacing:.03em}
-.live-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.22);padding:3px 9px;border-radius:20px;font-size:10.5px;font-weight:600;color:#4ade80}
-.live-dot{width:5px;height:5px;border-radius:50%;background:#22c55e;animation:blink 2s infinite;flex-shrink:0}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+// Prisahub Jobs API
+// NHS England: scrapes jobs.nhs.uk (works perfectly)
+// Scotland + Civil Service: returns direct search links (no scraping needed)
 
-/* TABS */
-.tab-bar{display:flex;padding:10px 10px 0;gap:4px;border-bottom:1px solid rgba(255,255,255,.08)}
-.tab-btn{flex:1;padding:7px 4px;border:none;background:rgba(255,255,255,.06);border-radius:7px 7px 0 0;font-family:inherit;font-size:11px;font-weight:600;color:rgba(255,255,255,.5);cursor:pointer;transition:all .15s;text-align:center}
-.tab-btn:hover{background:rgba(255,255,255,.1);color:rgba(255,255,255,.8)}
-.tab-btn.active{background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff}
-.tab-btn.tab-scot.active{background:linear-gradient(135deg,#1a56db,#0f4c8a)}
-.tab-btn.tab-cs.active{background:linear-gradient(135deg,#dc2626,#991b1b)}
+const CACHE = new Map();
+const TTL_MS = 30 * 60 * 1000;
 
-.cat-scroll{flex:1;overflow-y:auto;padding:8px 8px 24px}
-.cat-scroll::-webkit-scrollbar{width:3px}
-.cat-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
-.grp-label{font-size:9px;font-weight:700;color:rgba(255,255,255,.25);text-transform:uppercase;letter-spacing:.12em;padding:12px 10px 4px}
-.cat-btn{display:flex;align-items:center;gap:8px;width:100%;padding:8px 10px;border:none;background:none;border-left:3px solid transparent;border-radius:0 8px 8px 0;font-family:inherit;font-size:12px;font-weight:500;color:rgba(255,255,255,.55);cursor:pointer;transition:all .13s;margin-bottom:1px;text-align:left}
-.cat-btn:hover{background:rgba(255,255,255,.06);color:rgba(255,255,255,.9)}
-.cat-btn.active{background:rgba(59,130,246,.16);color:#fff;font-weight:700;border-left-color:#3b82f6}
-.cat-btn.active.scot{border-left-color:#60a5fa;background:rgba(26,86,219,.2)}
-.cat-btn.active.cs{border-left-color:#f87171;background:rgba(220,38,38,.2)}
-.cat-icon{font-size:13px;width:18px;text-align:center;flex-shrink:0}
-.cat-label{flex:1;line-height:1.35}
-.cat-count{font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.45);min-width:20px;text-align:center;flex-shrink:0}
-.cat-btn.active .cat-count{background:rgba(59,130,246,.3);color:#93c5fd}
-
-.main{margin-left:265px;flex:1;display:flex;flex-direction:column;min-height:100vh}
-.top-bar{background:#fff;border-bottom:1px solid #e2e8f0;padding:14px 26px;position:sticky;top:0;z-index:50;box-shadow:0 1px 3px rgba(0,0,0,.04)}
-.top-bar-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-.page-title{font-size:19px;font-weight:800;color:#0f172a;letter-spacing:-.4px}
-.page-sub{font-size:12px;color:#64748b;margin-top:2px}
-.search-wrap{position:relative;width:280px}
-.s-icon{position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#94a3b8;pointer-events:none;font-size:13px}
-.s-input{width:100%;padding:8px 12px 8px 32px;border:1.5px solid #e2e8f0;border-radius:10px;font-family:inherit;font-size:13px;color:#0f172a;background:#f8fafc;outline:none;transition:all .15s}
-.s-input:focus{border-color:#3b82f6;background:#fff;box-shadow:0 0 0 3px rgba(59,130,246,.08)}
-.s-input::placeholder{color:#94a3b8}
-
-/* TAB INDICATOR */
-.tab-indicator{padding:8px 26px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:8px}
-.tab-pill{padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700}
-.tab-pill-nhs{background:#dbeafe;color:#1d4ed8}
-.tab-pill-scot{background:#bfdbfe;color:#1e40af}
-.tab-pill-cs{background:#fee2e2;color:#991b1b}
-
-.stats-strip{background:#fff;border-bottom:1px solid #e8eef8;display:flex;overflow-x:auto;padding:0 26px}
-.stats-strip::-webkit-scrollbar{display:none}
-.stat{padding:9px 16px;text-align:center;border-right:1px solid #f1f5f9;flex-shrink:0;min-width:90px}
-.stat:last-child{border-right:none}
-.stat-n{font-size:16px;font-weight:800;line-height:1}
-.stat-l{font-size:10px;color:#94a3b8;margin-top:2px;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
-.content{padding:18px 26px;flex:1}
-.filter-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
-.res-label{font-size:13px;color:#64748b;font-weight:500}
-.res-label strong{color:#0f172a}
-.job-list{display:flex;flex-direction:column;gap:9px}
-.job-card{background:#fff;border:1.5px solid #e8eef8;border-radius:14px;padding:14px 18px;display:flex;align-items:flex-start;gap:12px;transition:all .17s;position:relative;overflow:hidden}
-.job-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;opacity:0;transition:opacity .17s;border-radius:14px 0 0 14px}
-.job-card.nhs::before{background:linear-gradient(180deg,#3b82f6,#6366f1)}
-.job-card.scot::before{background:linear-gradient(180deg,#1a56db,#0f4c8a)}
-.job-card.cs::before{background:linear-gradient(180deg,#dc2626,#991b1b)}
-.job-card:hover{border-color:#bfdbfe;box-shadow:0 4px 18px rgba(59,130,246,.08);transform:translateY(-1px)}
-.job-card:hover::before{opacity:1}
-.job-logo{width:40px;height:40px;border-radius:9px;background:linear-gradient(135deg,#eff6ff,#e0e7ff);display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;border:1px solid #dde8ff}
-.job-body{flex:1;min-width:0}
-.job-title{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:2px;line-height:1.35}
-.job-org{font-size:12px;color:#2563eb;font-weight:600;margin-bottom:6px}
-.job-meta{display:flex;flex-wrap:wrap;gap:8px;font-size:11.5px;color:#64748b;margin-bottom:7px}
-.job-tags{display:flex;flex-wrap:wrap;gap:4px}
-.tag{font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:5px}
-.t-band  {background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
-.t-salary{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
-.t-perm  {background:#faf5ff;color:#6d28d9;border:1px solid #e9d5ff}
-.t-close {background:#fff7ed;color:#c2410c;border:1px solid #fed7aa}
-.t-cat   {background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd}
-.t-grade {background:#fef3c7;color:#92400e;border:1px solid #fde68a}
-.job-actions{display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex-shrink:0}
-.cp-btn{width:30px;height:30px;border:1.5px solid #e2e8f0;border-radius:7px;background:#f8fafc;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#94a3b8;transition:all .15s;font-size:12px}
-.cp-btn:hover{border-color:#3b82f6;color:#3b82f6;background:#eff6ff}
-.cp-btn.done{border-color:#22c55e;color:#22c55e;background:#f0fdf4}
-.view-btn{padding:8px 14px;background:linear-gradient(135deg,#3b82f6,#6366f1);color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;white-space:nowrap;transition:all .17s;box-shadow:0 2px 8px rgba(59,130,246,.25)}
-.view-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px rgba(59,130,246,.35);color:#fff}
-.view-btn.cs-btn{background:linear-gradient(135deg,#dc2626,#991b1b)}
-.view-btn.scot-btn{background:linear-gradient(135deg,#1a56db,#0f4c8a)}
-.link-card{border-style:dashed}
-.loading-wrap{text-align:center;padding:70px 20px}
-.spinner{width:38px;height:38px;border:3px solid #e2e8f0;border-top-color:#3b82f6;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
-@keyframes spin{to{transform:rotate(360deg)}}
-.loading-wrap p{font-size:14px;color:#64748b;margin-top:8px}
-.loading-wrap small{font-size:12px;color:#94a3b8;display:block;margin-top:6px}
-.empty{text-align:center;padding:60px 20px}
-.empty-e{font-size:46px;margin-bottom:12px;display:block}
-.empty h3{font-size:16px;font-weight:700;color:#64748b;margin-bottom:6px}
-.empty p{font-size:13px;line-height:1.7;max-width:340px;margin:0 auto;color:#94a3b8}
-.skeleton{background:linear-gradient(90deg,#f1f5f9 25%,#e8eef8 50%,#f1f5f9 75%);background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:8px}
-@keyframes shimmer{to{background-position:-200% 0}}
-.sk-card{background:#fff;border:1.5px solid #e8eef8;border-radius:14px;padding:14px 18px;display:flex;gap:12px;margin-bottom:9px}
-.pagination{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:20px;padding-bottom:40px}
-.pg-btn{padding:7px 14px;border:1.5px solid #e2e8f0;border-radius:9px;background:#fff;font-family:inherit;font-size:12px;font-weight:600;color:#374151;cursor:pointer;transition:all .15s}
-.pg-btn:hover{border-color:#3b82f6;color:#3b82f6}
-.pg-btn:disabled{opacity:.35;cursor:not-allowed}
-.pg-info{font-size:13px;color:#64748b;font-weight:500}
-@media(max-width:880px){
-  .sidebar{width:100%;position:static}.shell{flex-direction:column}.main{margin-left:0}
-  .top-bar,.content{padding:12px 14px}.stats-strip{padding:0 14px}.search-wrap{width:100%}
+// ── HTML HELPERS ──────────────────────────────────────────────
+function decodeEntities(s) {
+  return s.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+          .replace(/&quot;/g,'"').replace(/&#039;/g,"'").replace(/&#x27;/g,"'")
+          .replace(/&nbsp;/g,' ');
 }
-</style>
-</head>
-<body>
-<div class="shell">
-<aside class="sidebar">
-  <div class="sb-header">
-    <div class="sb-brand">
-      <div class="sb-icon">🏥</div>
-      <div><div class="sb-name">Prisa<span>hub</span></div><div class="sb-sub">JOB LINKS</div></div>
-    </div>
-    <div class="live-badge"><span class="live-dot"></span>Live Jobs</div>
-  </div>
-
-  <!-- TAB BUTTONS -->
-  <div class="tab-bar">
-    <button class="tab-btn active" data-tab="NHS" onclick="switchTab('NHS',this)">🏥 NHS</button>
-    <button class="tab-btn tab-scot" data-tab="SCOTLAND" onclick="switchTab('SCOTLAND',this)">🏴 Scotland</button>
-    <button class="tab-btn tab-cs" data-tab="CIVIL SERVICE" onclick="switchTab('CIVIL SERVICE',this)">🏛️ Civil Service</button>
-  </div>
-
-  <div class="cat-scroll" id="cat-list"></div>
-</aside>
-
-<main class="main">
-  <div class="top-bar">
-    <div class="top-bar-row">
-      <div><div class="page-title" id="ptitle">🏥 All NHS Jobs</div><div class="page-sub" id="psub">Live permanent NHS vacancies</div></div>
-      <div class="search-wrap"><span class="s-icon">🔍</span><input class="s-input" id="s-input" placeholder="Search job title, location..."/></div>
-    </div>
-  </div>
-
-  <div class="stats-strip">
-    <div class="stat"><div class="stat-n" id="sn-total" style="color:#3b82f6">—</div><div class="stat-l">Total Jobs</div></div>
-    <div class="stat"><div class="stat-n" style="color:#6d28d9">100%</div><div class="stat-l">Permanent</div></div>
-    <div class="stat"><div class="stat-n" id="sn-cats" style="color:#059669">30</div><div class="stat-l">Categories</div></div>
-    <div class="stat"><div class="stat-n" id="sn-upd" style="color:#f59e0b;font-size:11px">Live</div><div class="stat-l">Updated</div></div>
-  </div>
-
-  <div class="content">
-    <div class="filter-bar"><div class="res-label" id="rlabel"></div></div>
-    <div id="jlist"></div>
-    <div class="pagination" id="pgn"></div>
-  </div>
-</main>
-</div>
-
-<script>
-// ── CATEGORIES PER TAB ────────────────────────────────────────
-var TAB_CATS = {
-  'NHS': [
-    {id:'All',                  label:'All Jobs',                        icon:'🏥',g:null},
-    {id:'admin-outside-london', label:'Admin Outside London',            icon:'📋',g:'Admin'},
-    {id:'admin-london',         label:'Admin in London',                 icon:'📋',g:'Admin'},
-    {id:'sw-london',            label:'Support Worker in London',        icon:'🤝',g:'Support Worker'},
-    {id:'sw-outside-london',    label:'Support Worker Outside London',   icon:'🤝',g:'Support Worker'},
-    {id:'sw-west-midlands',     label:'Support Worker West Midlands',    icon:'🤝',g:'Support Worker'},
-    {id:'sw-wales',             label:'Support Worker in Wales',         icon:'🤝',g:'Support Worker'},
-    {id:'sw-manchester',        label:'Support Worker Manchester',       icon:'🤝',g:'Support Worker'},
-    {id:'sw-west-yorkshire',    label:'Support Worker W Yorkshire',      icon:'🤝',g:'Support Worker'},
-    {id:'sw-east-yorkshire',    label:'Support Worker E Yorkshire',      icon:'🤝',g:'Support Worker'},
-    {id:'staff-nurse',          label:'Staff Nurse',                     icon:'👩‍⚕️',g:'Nursing'},
-    {id:'mental-health-nurse',  label:'Mental Health Nurse',             icon:'🧠',g:'Nursing'},
-    {id:'research-nurse',       label:'Research Nurse',                  icon:'🔭',g:'Nursing'},
-    {id:'clinical-fellow',      label:'Clinical Fellow',                 icon:'🩺',g:'Clinical'},
-    {id:'clinical-coder',       label:'Clinical Coder',                  icon:'🏷️',g:'Clinical'},
-    {id:'dietician',            label:'Dietician',                       icon:'🥗',g:'Clinical'},
-    {id:'microbiology',         label:'Microbiology',                    icon:'🔬',g:'Clinical'},
-    {id:'phlebotomist',         label:'Phlebotomist Leader',             icon:'💉',g:'Clinical'},
-    {id:'research-assistant',   label:'Research Assistant',              icon:'📊',g:'Clinical'},
-    {id:'social-worker',        label:'Social Worker',                   icon:'🫂',g:'Clinical'},
-    {id:'data-analyst',         label:'Data Analyst',                    icon:'📈',g:'Professional'},
-    {id:'bi-analyst',           label:'BI Analyst',                      icon:'🧩',g:'Professional'},
-    {id:'financial-analyst',    label:'Financial Analyst',               icon:'💹',g:'Professional'},
-    {id:'desk-analyst',         label:'Desk Analyst',                    icon:'💻',g:'Professional'},
-    {id:'finance',              label:'Finance',                         icon:'💰',g:'Professional'},
-    {id:'hr',                   label:'HR',                              icon:'👥',g:'Professional'},
-    {id:'it-engineering',       label:'IT / Engineering',                icon:'⚙️',g:'Professional'},
-    {id:'project-manager',      label:'Project Manager',                 icon:'📌',g:'Professional'},
-    {id:'business-analyst',     label:'Business Analyst',                icon:'📉',g:'Professional'},
-    {id:'logistics',            label:'Logistics',                       icon:'🚚',g:'Professional'},
-    {id:'coordinator',          label:'Coordinator',                     icon:'🗂️',g:'Professional'},
-  ],
-  'SCOTLAND': [
-    {id:'All',              label:'All Scotland Jobs',      icon:'🏴',g:null},
-    {id:'scot-admin',       label:'Admin Roles',            icon:'📋',g:'Admin'},
-    {id:'scot-sw',          label:'Support Worker',         icon:'🤝',g:'Support Worker'},
-    {id:'scot-staff-nurse', label:'Staff Nurse',            icon:'👩‍⚕️',g:'Nursing'},
-    {id:'scot-mh-nurse',    label:'Mental Health Nurse',    icon:'🧠',g:'Nursing'},
-    {id:'scot-clinical-fellow', label:'Clinical Fellow',   icon:'🩺',g:'Clinical'},
-    {id:'scot-social-worker',   label:'Social Worker',     icon:'🫂',g:'Clinical'},
-    {id:'scot-dietician',   label:'Dietician',              icon:'🥗',g:'Clinical'},
-    {id:'scot-microbiology',label:'Microbiology',           icon:'🔬',g:'Clinical'},
-    {id:'scot-phlebotomist',label:'Phlebotomist',           icon:'💉',g:'Clinical'},
-    {id:'scot-research',    label:'Research Assistant',     icon:'📊',g:'Clinical'},
-    {id:'scot-data-analyst',label:'Data Analyst',           icon:'📈',g:'Professional'},
-    {id:'scot-bi',          label:'BI Analyst',             icon:'🧩',g:'Professional'},
-    {id:'scot-finance',     label:'Finance',                icon:'💰',g:'Professional'},
-    {id:'scot-hr',          label:'HR',                     icon:'👥',g:'Professional'},
-    {id:'scot-it',          label:'IT / Engineering',       icon:'⚙️',g:'Professional'},
-    {id:'scot-pm',          label:'Project Manager',        icon:'📌',g:'Professional'},
-    {id:'scot-ba',          label:'Business Analyst',       icon:'📉',g:'Professional'},
-    {id:'scot-coordinator', label:'Coordinator',            icon:'🗂️',g:'Professional'},
-  ],
-  'CIVIL SERVICE': [
-    {id:'All',              label:'All Civil Service Jobs', icon:'🏛️',g:null},
-    {id:'cs-eo-admin',      label:'Admin Officer (EO)',     icon:'📋',g:'Admin'},
-    {id:'cs-heo-admin',     label:'Higher Admin Officer (HEO)', icon:'📋',g:'Admin'},
-    {id:'cs-seo-admin',     label:'Senior Admin Officer (SEO)', icon:'📋',g:'Admin'},
-    {id:'cs-software-dev',  label:'Software Developer',    icon:'💻',g:'Technology'},
-    {id:'cs-data-analyst',  label:'Data Analyst',          icon:'📈',g:'Technology'},
-    {id:'cs-cyber',         label:'Cyber Security',        icon:'🔐',g:'Technology'},
-    {id:'cs-it-support',    label:'IT Support',            icon:'🖥️',g:'Technology'},
-    {id:'cs-architecture',  label:'IT Architecture',       icon:'🏗️',g:'Technology'},
-    {id:'cs-ddat',          label:'Digital & Technology',  icon:'⚙️',g:'Technology'},
-    {id:'cs-project-manager',label:'Project Manager',      icon:'📌',g:'Technology'},
-    {id:'cs-business-analyst',label:'Business Analyst',    icon:'📉',g:'Technology'},
-  ],
-};
-
-var _tab='NHS', _cat='All', _kw='', _pg=1, _pgs=1, _tot=0, _jobs=[], _tmr=null, _loading=false;
-
-function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
-
-function switchTab(tab, btn) {
-  _tab=tab; _cat='All'; _kw=''; _pg=1;
-  document.getElementById('s-input').value='';
-  document.querySelectorAll('.tab-btn').forEach(function(b){b.classList.remove('active');});
-  btn.classList.add('active');
-  var cats = document.getElementById('sn-cats');
-  cats.textContent = (TAB_CATS[tab]||[]).length - 1;
-  sidebar(); load(1);
+function stripTags(s) {
+  return decodeEntities(s.replace(/<[^>]+>/g,' ')).replace(/\s+/g,' ').trim();
+}
+function extractBand(text) {
+  const m = text.match(/band\s*(\d+)/i);
+  return m ? parseInt(m[1], 10) : undefined;
+}
+function pickAfterLabel(block, dataTest) {
+  const re = new RegExp(`<li[^>]*data-test="${dataTest}"[^>]*>([\\s\\S]*?)<\\/li>`,'i');
+  const m = block.match(re);
+  if (!m) return '';
+  return stripTags(m[1]).replace(/^[A-Za-z ]+:\s*/,'').trim();
 }
 
-async function load(pg) {
-  if (_loading) return;
-  _loading=true; _pg=pg||1; skel();
+// ── PARSE NHS JOBS HTML ───────────────────────────────────────
+function parseNhsHtml(html) {
+  const jobs = [];
+  const liRe = /<li[^>]*class="[^"]*\bsearch-result\b[^"]*"[^>]*>([\s\S]*?)(?=<li[^>]*class="[^"]*\bsearch-result\b|<\/ul)/g;
+  let match;
+  while ((match = liRe.exec(html)) !== null) {
+    const block = match[1];
+    const tm = block.match(/<a[^>]*href="(\/candidate\/jobadvert\/[^"]+)"[^>]*data-test="search-result-job-title"[^>]*>([\s\S]*?)<\/a>/i)
+            || block.match(/<a[^>]*data-test="search-result-job-title"[^>]*href="(\/candidate\/jobadvert\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!tm) continue;
+    const href  = decodeEntities(tm[1]);
+    const title = stripTags(tm[2]);
+    const url   = `https://www.jobs.nhs.uk${href}`;
+
+    let organisation = 'NHS', location = 'United Kingdom';
+    const locBlock = block.match(/<div[^>]*data-test="search-result-location"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*class="nhsuk-grid-row/i);
+    if (locBlock) {
+      const inner = locBlock[1];
+      const orgM  = inner.match(/<h3[^>]*>([\s\S]*?)<div[^>]*class="location-font-size"/i);
+      if (orgM) organisation = stripTags(orgM[1]);
+      const locM  = inner.match(/<div[^>]*class="location-font-size"[^>]*>([\s\S]*?)<\/div>/i);
+      if (locM) location = stripTags(locM[1]).replace(/,\s*$/,'');
+    }
+
+    const salary         = pickAfterLabel(block,'search-result-salary');
+    const postedDate     = pickAfterLabel(block,'search-result-publicationDate');
+    const closingDate    = pickAfterLabel(block,'search-result-closingDate');
+    const contractType   = pickAfterLabel(block,'search-result-jobType');
+    const workingPattern = pickAfterLabel(block,'search-result-workingPattern');
+    const band           = extractBand(`${title} ${salary}`);
+    const refMatch       = href.match(/\/jobadvert\/([^?]+)/);
+    const id             = refMatch ? refMatch[1] : `${jobs.length}-${title.slice(0,20)}`;
+
+    jobs.push({ id, title, organisation, location,
+      salary: salary||undefined, band,
+      postedDate: postedDate||undefined, closingDate: closingDate||undefined,
+      contractType: contractType||undefined, workingPattern: workingPattern||undefined, url });
+  }
+  return jobs;
+}
+
+// ── FETCH NHS ENGLAND ─────────────────────────────────────────
+async function fetchNhsEngland(keyword, location, page=1) {
+  const params = new URLSearchParams({ keyword, language:'en' });
+  if (location) params.set('location', location);
+  if (page > 1)  params.set('page', String(page));
+  const res = await fetch(`https://www.jobs.nhs.uk/candidate/search/results?${params}`, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'en-GB,en;q=0.9',
+    }
+  });
+  if (!res.ok) throw new Error(`NHS Jobs ${res.status}`);
+  return parseNhsHtml(await res.text());
+}
+
+// ── APPLY NHS FILTERS ─────────────────────────────────────────
+function isNHSOrg(org) {
+  const o = org.toLowerCase();
+  return o.includes('nhs') || o.includes('health board') || o.includes('hospital') ||
+         o.includes('trust') || o.includes('integrated care') || o.includes('ambulance') ||
+         o.includes('primary care');
+}
+
+function applyNhsFilters(jobs, opts) {
+  return jobs.filter(j => {
+    if (opts.minBand && j.band !== undefined && j.band < opts.minBand) return false;
+    if (opts.maxBand && j.band !== undefined && j.band > opts.maxBand) return false;
+    if (opts.excludeLocation && j.location.toLowerCase().includes(opts.excludeLocation.toLowerCase())) return false;
+    const title = j.title.toLowerCase();
+    if (opts.titleIncludes?.length && !opts.titleIncludes.some(t => title.includes(t.toLowerCase()))) return false;
+    if (opts.titleExcludes?.some(t => title.includes(t.toLowerCase()))) return false;
+    if (!isNHSOrg(j.organisation)) return false;
+    const hay = `${j.title} ${j.contractType??''} ${j.workingPattern??''}`.toLowerCase();
+    if (/\b(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)\b/.test(hay)) return false;
+    if (j.contractType && !j.contractType.toLowerCase().includes('permanent')) return false;
+    return true;
+  });
+}
+
+// ── SCOTLAND DIRECT LINKS ─────────────────────────────────────
+// Scotland NHS blocks server requests so we return direct search links
+// Users click the link and see live Scotland NHS jobs directly
+function getScotlandLinks() {
+  const base = 'https://apply.jobs.scot.nhs.uk/Home/Job';
+  const perm = 'ContractType=Permanent';
+  return [
+    { id:'scot-admin-link',     category:'Admin Roles',          group:'Admin',
+      title:'Browse Admin Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=administrator&${perm}` },
+    { id:'scot-sw-link',        category:'Support Worker',        group:'Support Worker',
+      title:'Browse Support Worker Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:'Band 3+',
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=healthcare+assistant&${perm}` },
+    { id:'scot-nurse-link',     category:'Staff Nurse',           group:'Nursing',
+      title:'Browse Staff Nurse Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:'Band 5',
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=staff+nurse&${perm}` },
+    { id:'scot-mh-link',        category:'Mental Health Nurse',   group:'Nursing',
+      title:'Browse Mental Health Nurse Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=mental+health+nurse&${perm}` },
+    { id:'scot-fellow-link',    category:'Clinical Fellow',       group:'Clinical',
+      title:'Browse Clinical Fellow Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=clinical+fellow&${perm}` },
+    { id:'scot-sw2-link',       category:'Social Worker',         group:'Clinical',
+      title:'Browse Social Worker Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=social+worker&${perm}` },
+    { id:'scot-diet-link',      category:'Dietician',             group:'Clinical',
+      title:'Browse Dietitian Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=dietitian&${perm}` },
+    { id:'scot-micro-link',     category:'Microbiology',          group:'Clinical',
+      title:'Browse Microbiology Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=microbiology&${perm}` },
+    { id:'scot-phleb-link',     category:'Phlebotomist',          group:'Clinical',
+      title:'Browse Phlebotomist Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=phlebotomist&${perm}` },
+    { id:'scot-res-link',       category:'Research Assistant',    group:'Clinical',
+      title:'Browse Research Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=research+assistant&${perm}` },
+    { id:'scot-data-link',      category:'Data Analyst',          group:'Professional',
+      title:'Browse Data Analyst Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=data+analyst&${perm}` },
+    { id:'scot-bi-link',        category:'BI Analyst',            group:'Professional',
+      title:'Browse BI Analyst Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=business+intelligence+analyst&${perm}` },
+    { id:'scot-fin-link',       category:'Finance',               group:'Professional',
+      title:'Browse Finance Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=finance+officer&${perm}` },
+    { id:'scot-hr-link',        category:'HR',                    group:'Professional',
+      title:'Browse HR Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=human+resources&${perm}` },
+    { id:'scot-it-link',        category:'IT / Engineering',      group:'Professional',
+      title:'Browse IT Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=IT+engineer&${perm}` },
+    { id:'scot-pm-link',        category:'Project Manager',       group:'Professional',
+      title:'Browse Project Manager Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=project+manager&${perm}` },
+    { id:'scot-ba-link',        category:'Business Analyst',      group:'Professional',
+      title:'Browse Business Analyst Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=business+analyst&${perm}` },
+    { id:'scot-coord-link',     category:'Coordinator',           group:'Professional',
+      title:'Browse Coordinator Jobs in NHS Scotland', organisation:'NHS Scotland',
+      location:'Scotland', salary:undefined, band:undefined,
+      contractType:'Permanent', postedDate:undefined, closingDate:undefined,
+      url:`${base}?SearchTerm=pathway+coordinator&${perm}` },
+  ];
+}
+
+// ── CIVIL SERVICE DIRECT LINKS ────────────────────────────────
+function getCivilServiceLinks() {
+  const base = 'https://www.civilservicejobs.service.gov.uk/csr/jobs.cgi?pagetype=jobsearch&keyword=';
+  return [
+    { id:'cs-eo-link',     category:'Admin Officer (EO)',         group:'Admin',
+      title:'Browse Executive Officer (EO) Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:'£27,500 - £35,000', band:undefined, grade:'EO',
+      contractType:'Permanent', url:`${base}executive+officer+EO` },
+    { id:'cs-heo-link',    category:'Higher Admin Officer (HEO)', group:'Admin',
+      title:'Browse Higher Executive Officer (HEO) Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:'£33,000 - £42,000', band:undefined, grade:'HEO',
+      contractType:'Permanent', url:`${base}higher+executive+officer+HEO` },
+    { id:'cs-seo-link',    category:'Senior Admin Officer (SEO)', group:'Admin',
+      title:'Browse Senior Executive Officer (SEO) Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:'£40,000 - £52,000', band:undefined, grade:'SEO',
+      contractType:'Permanent', url:`${base}senior+executive+officer+SEO` },
+    { id:'cs-dev-link',    category:'Software Developer',         group:'Technology',
+      title:'Browse Software Developer Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:undefined, band:undefined,
+      contractType:'Permanent', url:`${base}software+developer` },
+    { id:'cs-data-link',   category:'Data Analyst',               group:'Technology',
+      title:'Browse Data Analyst Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:undefined, band:undefined,
+      contractType:'Permanent', url:`${base}data+analyst` },
+    { id:'cs-cyber-link',  category:'Cyber Security',             group:'Technology',
+      title:'Browse Cyber Security Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:undefined, band:undefined,
+      contractType:'Permanent', url:`${base}cyber+security` },
+    { id:'cs-it-link',     category:'IT Support',                 group:'Technology',
+      title:'Browse IT Support Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:undefined, band:undefined,
+      contractType:'Permanent', url:`${base}IT+support+service+desk` },
+    { id:'cs-dig-link',    category:'Digital & Technology',       group:'Technology',
+      title:'Browse Digital & Technology Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:undefined, band:undefined,
+      contractType:'Permanent', url:`${base}digital+product+manager` },
+    { id:'cs-arch-link',   category:'IT Architecture',            group:'Technology',
+      title:'Browse IT Architecture Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:undefined, band:undefined,
+      contractType:'Permanent', url:`${base}solutions+architect` },
+    { id:'cs-pm-link',     category:'Project Manager',            group:'Technology',
+      title:'Browse Project Manager Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:undefined, band:undefined,
+      contractType:'Permanent', url:`${base}project+manager` },
+    { id:'cs-ba-link',     category:'Business Analyst',           group:'Technology',
+      title:'Browse Business Analyst Jobs', organisation:'Civil Service',
+      location:'United Kingdom', salary:undefined, band:undefined,
+      contractType:'Permanent', url:`${base}business+analyst` },
+  ];
+}
+
+const CX = ['nurse','nursing','doctor','consultant','registrar','physician',
+  'surgeon','midwife','therapist','pharmacist','radiographer','psychologist','paramedic','sonographer'];
+
+// ── NHS ENGLAND CATEGORIES ────────────────────────────────────
+const NHS_CATEGORIES = [
+  { id:'admin-outside-london', label:'Admin Outside London', keyword:'administrator', location:'', excludeLocation:'London', minBand:4, group:'Admin', titleIncludes:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'], titleExcludes:CX },
+  { id:'admin-london', label:'Admin in London', keyword:'administrator', location:'London', minBand:4, group:'Admin', titleIncludes:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'], titleExcludes:CX },
+  { id:'sw-london', label:'Support Worker in London', keyword:'support worker', location:'London', minBand:3, group:'Support Worker', titleIncludes:['support worker','healthcare support','health care support','care support','healthcare assistant','health care assistant','hca','hcsw','assistant practitioner'], titleExcludes:['registered nurse','staff nurse','charge nurse','ward manager','midwife','social worker'] },
+  { id:'sw-outside-london', label:'Support Worker Outside London', keyword:'support worker', location:'', excludeLocation:'London', minBand:3, group:'Support Worker', titleIncludes:['support worker','healthcare support','health care support','care support','healthcare assistant','health care assistant','hca','hcsw','assistant practitioner'], titleExcludes:['registered nurse','staff nurse','charge nurse','ward manager','midwife','social worker'] },
+  { id:'sw-west-midlands', label:'Support Worker West Midlands', keyword:'support worker', location:'West Midlands', minBand:3, group:'Support Worker', titleIncludes:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'], titleExcludes:['registered nurse','staff nurse','midwife','social worker'] },
+  { id:'sw-wales', label:'Support Worker in Wales', keyword:'support worker', location:'Wales', minBand:3, group:'Support Worker', titleIncludes:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'], titleExcludes:['registered nurse','staff nurse','midwife','social worker'] },
+  { id:'sw-manchester', label:'Support Worker Manchester', keyword:'support worker', location:'Manchester', minBand:3, group:'Support Worker', titleIncludes:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'], titleExcludes:['registered nurse','staff nurse','midwife','social worker'] },
+  { id:'sw-west-yorkshire', label:'Support Worker W Yorkshire', keyword:'support worker', location:'West Yorkshire', minBand:3, group:'Support Worker', titleIncludes:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'], titleExcludes:['registered nurse','staff nurse','midwife','social worker'] },
+  { id:'sw-east-yorkshire', label:'Support Worker E Yorkshire', keyword:'support worker', location:'East Yorkshire', minBand:3, group:'Support Worker', titleIncludes:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'], titleExcludes:['registered nurse','staff nurse','midwife','social worker'] },
+  { id:'staff-nurse', label:'Staff Nurse', keyword:'staff nurse', location:'', minBand:5, maxBand:5, group:'Nursing', titleIncludes:['staff nurse','registered nurse','rgn','rmn'], titleExcludes:['assistant','support worker','student','trainee','apprentice','bank'] },
+  { id:'mental-health-nurse', label:'Mental Health Nurse', keyword:'mental health nurse', location:'', group:'Nursing', titleIncludes:['mental health nurse','rmn','psychiatric nurse','mental health practitioner'], titleExcludes:['support worker','assistant','bank'] },
+  { id:'research-nurse', label:'Research Nurse', keyword:'research nurse', location:'', group:'Nursing', titleIncludes:['research nurse','clinical research nurse','senior research nurse'] },
+  { id:'clinical-fellow', label:'Clinical Fellow', keyword:'clinical fellow', location:'', group:'Clinical', titleIncludes:['clinical fellow','fellow','fy1','fy2','fy3','st1','st2','st3','st4','ct1','ct2','trust doctor','specialty doctor','specialty registrar','foundation year','junior clinical','sas doctor','associate specialist'] },
+  { id:'clinical-coder', label:'Clinical Coder', keyword:'clinical coder', location:'', group:'Clinical', titleIncludes:['clinical coder','clinical coding','coding auditor','senior clinical coder','lead clinical coder'] },
+  { id:'dietician', label:'Dietician', keyword:'dietitian', location:'', group:'Clinical', titleIncludes:['dietitian','dietician'] },
+  { id:'microbiology', label:'Microbiology', keyword:'microbiology', location:'', group:'Clinical', titleIncludes:['microbiology','microbiologist'] },
+  { id:'phlebotomist', label:'Phlebotomist Leader', keyword:'phlebotomist', location:'', group:'Clinical', titleIncludes:['phlebotomist','phlebotomy'] },
+  { id:'research-assistant', label:'Research Assistant', keyword:'research assistant', location:'', group:'Clinical', titleIncludes:['research assistant','research associate','research practitioner','research officer','clinical research','trial coordinator','study coordinator'], titleExcludes:['research nurse'] },
+  { id:'social-worker', label:'Social Worker', keyword:'social worker', location:'', group:'Clinical', titleIncludes:['social worker','amhp','approved mental health professional','practice educator'], titleExcludes:['support worker','healthcare assistant','admin'] },
+  { id:'data-analyst', label:'Data Analyst', keyword:'data analyst', location:'', group:'Professional', titleIncludes:['data analyst','data analytics','information analyst','reporting analyst','data engineer','data scientist','performance analyst'], titleExcludes:['business intelligence','financial analyst'] },
+  { id:'bi-analyst', label:'BI Analyst', keyword:'business intelligence analyst', location:'', group:'Professional', titleIncludes:['business intelligence','bi analyst','bi developer','bi lead','power bi','tableau'] },
+  { id:'financial-analyst', label:'Financial Analyst', keyword:'financial analyst', location:'', group:'Professional', titleIncludes:['financial analyst','finance analyst','financial planning','fp&a','financial reporting'] },
+  { id:'desk-analyst', label:'Desk Analyst', keyword:'service desk analyst', location:'', group:'Professional', titleIncludes:['desk analyst','service desk','helpdesk','1st line','2nd line','3rd line','it support analyst'] },
+  { id:'finance', label:'Finance', keyword:'finance officer', location:'', group:'Professional', titleIncludes:['finance officer','finance manager','finance assistant','finance director','management accountant','financial accountant','senior accountant','accounts payable','accounts receivable','payroll','treasury','head of finance'], titleExcludes:['analyst','project manager'] },
+  { id:'hr', label:'HR', keyword:'human resources', location:'', group:'Professional', titleIncludes:['hr advisor','hr officer','hr assistant','hr manager','hr director','hr business partner','human resources','people advisor','people partner','workforce','resourcing','recruitment advisor','employee relations','organisational development'] },
+  { id:'it-engineering', label:'IT / Engineering', keyword:'IT engineer', location:'', group:'Professional', titleIncludes:['it engineer','network engineer','software developer','software engineer','infrastructure engineer','cyber security','cloud engineer','devops','solutions architect','technical architect','application developer','web developer','ict engineer'], titleExcludes:['clinical','biomedical','project manager'] },
+  { id:'project-manager', label:'Project Manager', keyword:'project manager', location:'', group:'Professional', titleIncludes:['project manager','programme manager','project lead','project director','delivery manager','project officer'], titleExcludes:['nurse','doctor','support worker'] },
+  { id:'business-analyst', label:'Business Analyst', keyword:'business analyst', location:'', group:'Professional', titleIncludes:['business analyst','systems analyst','process analyst','transformation analyst'], titleExcludes:['business intelligence','data analyst','financial analyst','project manager'] },
+  { id:'logistics', label:'Logistics', keyword:'logistics', location:'', group:'Professional', titleIncludes:['logistics','supply chain','procurement','stores officer','transport manager','fleet manager','inventory','materials manager'] },
+  { id:'coordinator', label:'Coordinator', keyword:'pathway coordinator', location:'', group:'Professional', titleIncludes:['pathway coordinator','patient coordinator','care coordinator','referral coordinator','discharge coordinator','admissions coordinator','outpatient coordinator','appointments coordinator','waiting list coordinator','access coordinator','service coordinator','booking coordinator','patient flow'] },
+];
+
+// ── FETCH AND CACHE NHS CATEGORY ──────────────────────────────
+async function fetchNhsCategory(cat) {
+  const cached = CACHE.get(cat.id);
+  if (cached && Date.now() - cached.at < TTL_MS) return cached.jobs;
   try {
-    var q='/api/jobs?tab='+encodeURIComponent(_tab)+'&page='+_pg;
-    if (_cat!=='All') q+='&category='+encodeURIComponent(
-      (TAB_CATS[_tab]||[]).find(function(c){return c.id===_cat})?.label||_cat
-    );
-    if (_kw) q+='&keyword='+encodeURIComponent(_kw);
-    var r=await fetch(q);
-    if (!r.ok) throw new Error('HTTP '+r.status);
-    var d=await r.json();
-    _jobs=d.jobs||[]; _pgs=d.pages||1; _tot=d.total||0;
-    document.getElementById('sn-total').textContent=_tot;
-    document.getElementById('sn-upd').textContent=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-    render(); pgn(); hdr();
-  } catch(ex) {
-    document.getElementById('jlist').innerHTML=
-      '<div class="loading-wrap"><div class="spinner"></div><p>Loading live jobs...</p><small>First load takes 30–60 seconds</small></div>';
-    setTimeout(function(){_loading=false;load(_pg);},8000);
-    return;
+    const seen = new Set(); const all = [];
+    for (let p = 1; p <= 20; p++) {
+      const pageJobs = await fetchNhsEngland(cat.keyword, cat.location||'', p);
+      if (!pageJobs.length) break;
+      let added = 0;
+      for (const j of pageJobs) { if (seen.has(j.id)) continue; seen.add(j.id); all.push(j); added++; }
+      if (!added) break;
+    }
+    const filtered = applyNhsFilters(all, cat);
+    CACHE.set(cat.id, { at: Date.now(), jobs: filtered });
+    return filtered;
+  } catch(err) {
+    const stale = CACHE.get(cat.id);
+    return stale ? stale.jobs : [];
   }
-  _loading=false;
 }
 
-function hdr() {
-  var cats=TAB_CATS[_tab]||[];
-  var cat=cats.find(function(c){return c.id===_cat})||cats[0]||{label:'All Jobs',icon:'🏥'};
-  var tabLabel=_tab==='NHS'?'NHS England':_tab==='SCOTLAND'?'NHS Scotland':'Civil Service';
-  document.getElementById('ptitle').textContent=cat.icon+' '+cat.label;
-  document.getElementById('psub').textContent=_tot+' permanent '+tabLabel+' '+(_tot===1?'vacancy':'vacancies')+(_kw?' matching "'+_kw+'"':'');
-  document.getElementById('rlabel').innerHTML=_tot>0?'Showing <strong>'+_jobs.length+'</strong> of <strong>'+_tot+'</strong> jobs':'';
-}
+// ── MAIN HANDLER ──────────────────────────────────────────────
+export default async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin','*');
+  res.setHeader('Access-Control-Allow-Methods','GET,OPTIONS');
+  res.setHeader('Cache-Control','public, max-age=1800');
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
-function sidebar() {
-  var cats=TAB_CATS[_tab]||[];
-  var el=document.getElementById('cat-list'),h='',lg=null;
-  var tabCls=_tab==='SCOTLAND'?'scot':_tab==='CIVIL SERVICE'?'cs':'';
-  cats.forEach(function(c){
-    if(c.g!==lg){if(c.g)h+='<div class="grp-label">'+c.g+'</div>';lg=c.g;}
-    h+='<button class="cat-btn '+(c.id===_cat?'active '+tabCls:'')+'" data-id="'+e(c.id)+'">'
-      +'<span class="cat-icon">'+c.icon+'</span>'
-      +'<span class="cat-label">'+e(c.label)+'</span>'
-      +'<span class="cat-count">—</span>'
-      +'</button>';
+  const { category, tab='NHS', page=1 } = req.query;
+  const pg = parseInt(page), perPage = 20;
+
+  // ── SCOTLAND: scrape via proxy ────────────────────────────
+  if (tab === 'SCOTLAND') {
+    const scotCats = SCOTLAND_CATEGORIES;
+    let targets = scotCats;
+    if (category && category !== 'All') {
+      targets = scotCats.filter(c => c.label === category || c.id === category);
+    }
+    const allResults = [];
+    await Promise.all(targets.map(async cat => {
+      const jobs = await fetchScotlandCategory(cat);
+      jobs.forEach(j => allResults.push({...j, category:cat.label, group:cat.group}));
+    }));
+    allResults.sort((a,b) => { if(!a.postedDate&&!b.postedDate) return 0; if(!a.postedDate) return 1; if(!b.postedDate) return -1; return new Date(b.postedDate)-new Date(a.postedDate); });
+    const total = allResults.length;
+    const jobs  = allResults.slice((pg-1)*perPage, pg*perPage);
+    return res.status(200).json({ fetchedAt:new Date().toISOString(), total, page:pg, pages:Math.ceil(total/perPage), jobs });
+  }
+
+  // ── CIVIL SERVICE: scrape via proxy ───────────────────────
+  if (tab === 'CIVIL SERVICE') {
+    const csCats = CIVIL_CATEGORIES;
+    let targets = csCats;
+    if (category && category !== 'All') {
+      targets = csCats.filter(c => c.label === category || c.id === category);
+    }
+    const allResults = [];
+    await Promise.all(targets.map(async cat => {
+      const jobs = await fetchCivilCategory(cat);
+      jobs.forEach(j => allResults.push({...j, category:cat.label, group:cat.group}));
+    }));
+    allResults.sort((a,b) => { if(!a.postedDate&&!b.postedDate) return 0; if(!a.postedDate) return 1; if(!b.postedDate) return -1; return new Date(b.postedDate)-new Date(a.postedDate); });
+    const total = allResults.length;
+    const jobs  = allResults.slice((pg-1)*perPage, pg*perPage);
+    return res.status(200).json({ fetchedAt:new Date().toISOString(), total, page:pg, pages:Math.ceil(total/perPage), jobs });
+  }
+
+  // ── NHS ENGLAND: live scrape ──────────────────────────────
+  let targets = NHS_CATEGORIES;
+  if (category && category !== 'All') {
+    targets = targets.filter(c => c.label === category || c.id === category);
+    if (!targets.length) return res.status(404).json({ error:'Unknown category' });
+  }
+
+  const allResults = [];
+  await Promise.all(targets.map(async cat => {
+    const jobs = await fetchNhsCategory(cat);
+    jobs.forEach(j => allResults.push({...j, category:cat.label, group:cat.group}));
+  }));
+
+  allResults.sort((a,b) => {
+    if (!a.postedDate && !b.postedDate) return 0;
+    if (!a.postedDate) return 1;
+    if (!b.postedDate) return -1;
+    return new Date(b.postedDate) - new Date(a.postedDate);
   });
-  el.innerHTML=h;
-  el.querySelectorAll('.cat-btn').forEach(function(b){
-    b.addEventListener('click',function(){
-      _cat=b.dataset.id;_kw='';_pg=1;
-      document.getElementById('s-input').value='';
-      sidebar();load(1);
+
+  const total = allResults.length;
+  const jobs  = allResults.slice((pg-1)*perPage, pg*perPage);
+  res.status(200).json({ fetchedAt:new Date().toISOString(), total, page:pg, pages:Math.ceil(total/perPage), jobs });
+}
+
+// ── APPENDED: Scotland and Civil Service fetch functions ──────
+
+// Scotland categories - same structure as NHS England
+const SCOTLAND_CATEGORIES = [
+  { id:'scot-admin',    label:'Admin Roles',       keyword:'administrator',             group:'Admin',          titleIncludes:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','clerical'], titleExcludes:['nurse','doctor','therapist','surgeon','midwife','pharmacist','radiographer'] },
+  { id:'scot-sw',       label:'Support Worker',    keyword:'healthcare assistant',      group:'Support Worker', titleIncludes:['support worker','healthcare assistant','health care assistant','hca','hcsw','assistant practitioner','clinical support'], titleExcludes:['registered nurse','staff nurse','midwife','social worker'] },
+  { id:'scot-nurse',    label:'Staff Nurse',        keyword:'staff nurse',               group:'Nursing',        titleIncludes:['staff nurse','registered nurse','rgn','rmn'], titleExcludes:['assistant','support worker','student','bank'] },
+  { id:'scot-mh',       label:'Mental Health Nurse',keyword:'mental health nurse',       group:'Nursing',        titleIncludes:['mental health nurse','rmn','psychiatric nurse','mental health practitioner'] },
+  { id:'scot-fellow',   label:'Clinical Fellow',    keyword:'clinical fellow',           group:'Clinical',       titleIncludes:['clinical fellow','fellow','fy1','fy2','fy3','st1','st2','st3','trust doctor','specialty doctor','specialty registrar'] },
+  { id:'scot-sw2',      label:'Social Worker',      keyword:'social worker',             group:'Clinical',       titleIncludes:['social worker','amhp'], titleExcludes:['support worker','healthcare assistant'] },
+  { id:'scot-diet',     label:'Dietician',          keyword:'dietitian',                 group:'Clinical',       titleIncludes:['dietitian','dietician'] },
+  { id:'scot-micro',    label:'Microbiology',        keyword:'microbiology',              group:'Clinical',       titleIncludes:['microbiology','microbiologist'] },
+  { id:'scot-phleb',    label:'Phlebotomist',        keyword:'phlebotomist',              group:'Clinical',       titleIncludes:['phlebotomist','phlebotomy'] },
+  { id:'scot-res',      label:'Research Assistant',  keyword:'research assistant',        group:'Clinical',       titleIncludes:['research assistant','research associate','research practitioner','clinical research','trial coordinator'] },
+  { id:'scot-data',     label:'Data Analyst',        keyword:'data analyst',              group:'Professional',   titleIncludes:['data analyst','data analytics','information analyst','reporting analyst','data engineer','data scientist'] },
+  { id:'scot-bi',       label:'BI Analyst',          keyword:'business intelligence analyst', group:'Professional', titleIncludes:['business intelligence','bi analyst','bi developer','power bi','tableau'] },
+  { id:'scot-fin',      label:'Finance',             keyword:'finance officer',           group:'Professional',   titleIncludes:['finance officer','finance manager','finance assistant','management accountant','financial accountant','payroll'] },
+  { id:'scot-hr',       label:'HR',                  keyword:'human resources',           group:'Professional',   titleIncludes:['hr advisor','hr officer','hr assistant','hr manager','human resources','people advisor','workforce'] },
+  { id:'scot-it',       label:'IT / Engineering',    keyword:'IT engineer',               group:'Professional',   titleIncludes:['it engineer','network engineer','software developer','software engineer','infrastructure engineer','cyber security','devops','ict engineer'] },
+  { id:'scot-pm',       label:'Project Manager',     keyword:'project manager',           group:'Professional',   titleIncludes:['project manager','programme manager','project lead','project director','delivery manager','project officer'] },
+  { id:'scot-ba',       label:'Business Analyst',    keyword:'business analyst',          group:'Professional',   titleIncludes:['business analyst','systems analyst','process analyst','transformation analyst'] },
+  { id:'scot-coord',    label:'Coordinator',         keyword:'pathway coordinator',       group:'Professional',   titleIncludes:['pathway coordinator','patient coordinator','care coordinator','referral coordinator','discharge coordinator','admissions coordinator','outpatient coordinator','access coordinator'] },
+];
+
+// Civil Service categories
+const CIVIL_CATEGORIES = [
+  { id:'cs-eo',   label:'Admin Officer (EO)',         keyword:'executive officer EO administrative',  group:'Admin',      titleIncludes:['executive officer','administrative officer','admin officer','case officer','casework officer','processing officer','operations officer','correspondence officer'], titleExcludes:['senior executive officer','seo','higher executive','heo'] },
+  { id:'cs-heo',  label:'Higher Admin Officer (HEO)', keyword:'higher executive officer HEO',         group:'Admin',      titleIncludes:['higher executive officer','heo','senior administrative','senior admin','senior case officer','policy officer','team manager'], titleExcludes:['senior executive officer','seo'] },
+  { id:'cs-seo',  label:'Senior Admin Officer (SEO)', keyword:'senior executive officer SEO',         group:'Admin',      titleIncludes:['senior executive officer','seo','senior manager','senior policy','senior operations'] },
+  { id:'cs-dev',  label:'Software Developer',         keyword:'software developer engineer',          group:'Technology', titleIncludes:['software developer','software engineer','developer','full stack','backend','frontend','devops','cloud engineer','web developer','application developer'] },
+  { id:'cs-data', label:'Data Analyst',               keyword:'data analyst',                         group:'Technology', titleIncludes:['data analyst','data analytics','data engineer','data scientist','business intelligence','bi analyst','power bi','tableau','reporting analyst','information analyst'] },
+  { id:'cs-cyber',label:'Cyber Security',             keyword:'cyber security',                       group:'Technology', titleIncludes:['cyber security','cybersecurity','information security','security analyst','security engineer','soc analyst','penetration tester','security architect'] },
+  { id:'cs-it',   label:'IT Support',                 keyword:'IT support service desk',              group:'Technology', titleIncludes:['it support','ict support','service desk','helpdesk','desktop support','1st line','2nd line','infrastructure engineer','network engineer','systems administrator'] },
+  { id:'cs-dig',  label:'Digital & Technology',       keyword:'digital technology product manager',   group:'Technology', titleIncludes:['digital','product manager','product owner','delivery manager','agile','ux designer','user researcher','interaction designer','content designer','ddat'] },
+  { id:'cs-arch', label:'IT Architecture',            keyword:'solutions architect enterprise architect', group:'Technology', titleIncludes:['architect','solutions architect','enterprise architect','technical architect','cloud architect','security architect'] },
+  { id:'cs-pm',   label:'Project Manager',            keyword:'project manager programme manager',    group:'Technology', titleIncludes:['project manager','programme manager','project lead','delivery manager','project officer','pmo','portfolio manager'] },
+  { id:'cs-ba',   label:'Business Analyst',           keyword:'business analyst',                     group:'Technology', titleIncludes:['business analyst','systems analyst','process analyst','transformation analyst','change analyst'] },
+];
+
+// Fetch Scotland jobs - use NHS England jobs.nhs.uk with Scottish city locations
+// Scotland NHS boards post on jobs.nhs.uk as well as their own site
+async function fetchScotlandCategory(cat) {
+  const cacheKey = `scot-${cat.id}`;
+  const cached   = CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.at < TTL_MS) return cached.jobs;
+
+  try {
+    const seen = new Set(); const all = [];
+    // Search multiple Scottish cities to get comprehensive results
+    const cities = ['Edinburgh','Glasgow','Aberdeen','Dundee','Inverness'];
+
+    await Promise.all(cities.map(async city => {
+      for (let p = 1; p <= 5; p++) {
+        const jobs = await fetchNhsEngland(cat.keyword, city, p);
+        if (!jobs.length) break;
+        let added = 0;
+        for (const j of jobs) {
+          if (seen.has(j.id)) continue;
+          seen.add(j.id); all.push(j); added++;
+        }
+        if (!added) break;
+      }
+    }));
+
+    // Filter: title match + NHS org + permanent + Scottish location
+    const scottishPlaces = ['edinburgh','glasgow','aberdeen','dundee','inverness','stirling',
+      'perth','falkirk','kirkcaldy','paisley','livingston','hamilton','dunfermline','ayr',
+      'scotland','scottish','highland','grampian','tayside','lothian','lanarkshire',
+      'ayrshire','fife','borders','argyll','dumfries','galloway','orkney','shetland'];
+
+    const filtered = all.filter(j => {
+      const tl = j.title.toLowerCase();
+      if (cat.titleIncludes?.length && !cat.titleIncludes.some(w => tl.includes(w))) return false;
+      if (cat.titleExcludes?.some(w => tl.includes(w))) return false;
+      if (!isNHSOrg(j.organisation)) return false;
+      const locL = j.location.toLowerCase();
+      if (!scottishPlaces.some(p => locL.includes(p))) return false;
+      const hay = `${j.title} ${j.contractType??''} ${j.workingPattern??''}`.toLowerCase();
+      if (/\b(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)\b/.test(hay)) return false;
+      if (j.contractType && !j.contractType.toLowerCase().includes('permanent')) return false;
+      return true;
     });
-  });
+
+    CACHE.set(cacheKey, { at: Date.now(), jobs: filtered });
+    return filtered;
+  } catch(err) {
+    const stale = CACHE.get(`scot-${cat.id}`);
+    return stale ? stale.jobs : [];
+  }
 }
 
-var EM=['🏥','🏨','🏛','🔬','💊','🩺','🧬','💉','🧪','🫀','🫁','🩻','🧠','🦷','🏃','⚕️','🏋️','🎓','📋','🔭'];
+// Fetch Civil Service jobs via allorigins.win proxy (bypasses server blocks)
+async function fetchCivilCategory(cat) {
+  const cacheKey = `cs-${cat.id}`;
+  const cached   = CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.at < TTL_MS) return cached.jobs;
 
-function render() {
-  var el=document.getElementById('jlist');
-  var tabCls=_tab==='SCOTLAND'?'scot':_tab==='CIVIL SERVICE'?'cs':'nhs';
-  var isCivil=_tab==='CIVIL SERVICE';
-  var isLinks=_tab==='SCOTLAND'||_tab==='CIVIL SERVICE';
+  try {
+    const seen = new Set(); const all = [];
 
-  if(!_jobs.length){
-    el.innerHTML='<div class="empty"><span class="empty-e">🔍</span><h3>No vacancies right now</h3><p>'
-      +(_kw?'No results for "'+e(_kw)+'". Try a different search.':'No jobs in this category right now. Check back soon.')
-      +'</p></div>';
-    return;
-  }
+    for (let p = 1; p <= 5; p++) {
+      const targetUrl = `https://www.civilservicejobs.service.gov.uk/csr/jobs.cgi?pagetype=jobsearch&keyword=${encodeURIComponent(cat.keyword)}&page=${p}&pagesize=20`;
+      // Use allorigins proxy to bypass Civil Service blocking
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
 
-  // Scotland and Civil Service show browse cards linking to their sites
-  if(isLinks){
-    el.innerHTML=_jobs.map(function(j,i){
-      var tgs='';
-      if(j.grade) tgs+='<span class="tag t-grade">'+e(j.grade)+'</span>';
-      if(j.band)  tgs+='<span class="tag t-band">'+e(j.band)+'</span>';
-      if(j.salary)tgs+='<span class="tag t-salary">'+e(j.salary)+'</span>';
-      tgs+='<span class="tag t-perm">Permanent</span>';
-      if(j.category&&_cat==='All') tgs+='<span class="tag t-cat">'+e(j.category)+'</span>';
-      var btnLabel=isCivil?'Browse Jobs →':'Browse NHS Scotland →';
-      var btnCls=isCivil?'view-btn cs-btn':'view-btn scot-btn';
-      return '<div class="job-card '+tabCls+' link-card">'
-        +'<div class="job-logo">'+EM[i%EM.length]+'</div>'
-        +'<div class="job-body">'
-          +'<div class="job-title">'+e(j.title)+'</div>'
-          +'<div class="job-org">'+e(j.organisation)+'</div>'
-          +'<div class="job-meta"><span>📍 '+e(j.location)+'</span></div>'
-          +'<div class="job-tags">'+tgs+'</div>'
-        +'</div>'
-        +'<div class="job-actions">'
-          +'<button class="cp-btn" data-url="'+e(j.url)+'" title="Copy link">📋</button>'
-          +'<a href="'+e(j.url)+'" target="_blank" class="'+btnCls+'">'+btnLabel+'</a>'
-        +'</div>'
-      +'</div>';
-    }).join('');
-    el.querySelectorAll('.cp-btn').forEach(function(b){
-      b.addEventListener('click',function(){
-        navigator.clipboard.writeText(b.dataset.url).then(function(){
-          b.textContent='✅';b.classList.add('done');
-          setTimeout(function(){b.textContent='📋';b.classList.remove('done');},2000);
-        });
+      const res = await fetch(proxyUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 Chrome/120.0 Safari/537.36' },
+        signal: AbortSignal.timeout(15000),
       });
-    });
-    return;
+
+      if (!res.ok) break;
+      const html  = await res.text();
+      const jobs  = parseCivilServiceHtml(html, cat);
+      if (!jobs.length) break;
+      let added = 0;
+      for (const j of jobs) {
+        if (seen.has(j.id)) continue;
+        seen.add(j.id); all.push(j); added++;
+      }
+      if (!added) break;
+    }
+
+    CACHE.set(cacheKey, { at: Date.now(), jobs: all });
+    return all;
+  } catch(err) {
+    const stale = CACHE.get(`cs-${cat.id}`);
+    return stale ? stale.jobs : [];
   }
-
-  // NHS England - show full job cards
-  el.innerHTML=_jobs.map(function(j,i){
-    var tgs='';
-    if(j.grade)         tgs+='<span class="tag t-grade">'+e(j.grade)+'</span>';
-    if(j.band)          tgs+='<span class="tag t-band">Band '+e(String(j.band))+'</span>';
-    if(j.salary)        tgs+='<span class="tag t-salary">'+e(j.salary)+'</span>';
-    if(j.contractType)  tgs+='<span class="tag t-perm">'+e(j.contractType)+'</span>';
-    if(j.closingDate)   tgs+='<span class="tag t-close">Closes '+e(j.closingDate)+'</span>';
-    if(j.category&&_cat==='All') tgs+='<span class="tag t-cat">'+e(j.category)+'</span>';
-    return '<div class="job-card '+tabCls+'">'
-      +'<div class="job-logo">'+EM[i%EM.length]+'</div>'
-      +'<div class="job-body">'
-        +'<div class="job-title">'+e(j.title)+'</div>'
-        +'<div class="job-org">'+e(j.organisation||'NHS')+'</div>'
-        +'<div class="job-meta">'
-          +(j.location?'<span>📍 '+e(j.location)+'</span>':'')
-          +(j.postedDate?'<span>📅 '+e(j.postedDate)+'</span>':'')
-        +'</div>'
-        +(tgs?'<div class="job-tags">'+tgs+'</div>':'')
-      +'</div>'
-      +'<div class="job-actions">'
-        +'<button class="cp-btn" data-url="'+e(j.url)+'" title="Copy link">📋</button>'
-        +'<a href="'+e(j.url)+'" target="_blank" class="view-btn">View Role →</a>'
-      +'</div>'
-    +'</div>';
-  }).join('');
-  el.querySelectorAll('.cp-btn').forEach(function(b){
-    b.addEventListener('click',function(){
-      navigator.clipboard.writeText(b.dataset.url).then(function(){
-        b.textContent='✅';b.classList.add('done');
-        setTimeout(function(){b.textContent='📋';b.classList.remove('done');},2000);
-      });
-    });
-  });
 }
 
-function pgn(){
-  var el=document.getElementById('pgn');
-  if(_pgs<=1){el.innerHTML='';return;}
-  el.innerHTML='<button class="pg-btn" id="pp" '+(_pg<=1?'disabled':'')+'>← Previous</button>'
-    +'<span class="pg-info">Page '+_pg+' of '+_pgs+'</span>'
-    +'<button class="pg-btn" id="np" '+(_pg>=_pgs?'disabled':'')+'>Next →</button>';
-  var pp=document.getElementById('pp'),np=document.getElementById('np');
-  if(pp) pp.addEventListener('click',function(){load(_pg-1);window.scrollTo(0,0);});
-  if(np) np.addEventListener('click',function(){load(_pg+1);window.scrollTo(0,0);});
-}
+// Parse Civil Service HTML
+function parseCivilServiceHtml(html, cat) {
+  const jobs = [];
+  const seen = new Set();
 
-function skel(){
-  document.getElementById('jlist').innerHTML=
-    '<div class="sk-card"><div class="skeleton" style="width:40px;height:40px;border-radius:9px;flex-shrink:0"></div><div style="flex:1"><div class="skeleton" style="width:58%;height:14px;margin-bottom:8px"></div><div class="skeleton" style="width:38%;height:11px;margin-bottom:10px"></div><div class="skeleton" style="width:76%;height:10px"></div></div></div>'.repeat(6);
-}
+  // Civil Service job boxes
+  const boxRe = /<li[^>]*class="[^"]*search-results-job-box[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
+  const matches = [...html.matchAll(boxRe)];
 
-sidebar(); load(1);
-document.getElementById('s-input').addEventListener('input',function(){
-  clearTimeout(_tmr);
-  _tmr=setTimeout(function(){_kw=document.getElementById('s-input').value.trim();_pg=1;load(1);},400);
-});
-setInterval(function(){load(_pg);},30*60*1000);
-</script>
-</body>
-</html>
+  for (const m of matches) {
+    const block = m[1];
+    const tm = block.match(/<a[^>]*href="([^"]*(?:job_id|jcode|vacancy|jobdetail)[^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!tm) continue;
+
+    const href  = tm[1];
+    const title = stripTags(tm[2]);
+    if (!title || title.length < 4 || title.length > 200) continue;
+    if (seen.has(href)) continue;
+    seen.add(href);
+
+    // Title filter
+    if (cat.titleIncludes?.length) {
+      const tl = title.toLowerCase();
+      if (!cat.titleIncludes.some(w => tl.includes(w))) continue;
+    }
+    if (cat.titleExcludes?.some(w => title.toLowerCase().includes(w))) continue;
+
+    const url = href.startsWith('http') ? href : `https://www.civilservicejobs.service.gov.uk${href}`;
+
+    const deptM = block.match(/<[^>]*class="[^"]*(?:department|employer)[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/i);
+    const organisation = deptM ? stripTags(deptM[1]) : 'Civil Service';
+
+    const locM = block.match(/<[^>]*class="[^"]*location[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>/i);
+    const location = locM ? stripTags(locM[1]) : 'United Kingdom';
+
+    const salM = block.match(/£[\d,]+(?:\s*(?:to|-)\s*£[\d,]+)?/i);
+    const salary = salM ? salM[0] : undefined;
+
+    const gradeM = block.match(/\b(AA|AO|EO|HEO|SEO|Grade\s*[67]|SCS\s*[123])\b/i);
+    const grade = gradeM ? gradeM[1].toUpperCase() : undefined;
+
+    const id = `cs-${jobs.length}-${title.slice(0,20).replace(/\W/g,'-')}`;
+    jobs.push({ id, title, organisation, location, salary, grade, band:undefined,
+      postedDate:undefined, closingDate:undefined, contractType:'Permanent', url });
+  }
+  return jobs;
+}
