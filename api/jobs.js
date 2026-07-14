@@ -1,4 +1,4 @@
-// Prisahub Jobs API - NHS England only
+// Prisahub Jobs API - NHS England
 const CACHE = new Map();
 const TTL = 30 * 60 * 1000;
 
@@ -60,28 +60,64 @@ function isNhsOrg(org) {
          o.includes('primary care');
 }
 
+// Location keywords for each region
+const REGIONS = {
+  'London':        ['london'],
+  'West Midlands': ['birmingham','coventry','wolverhampton','leicester','derby','stoke','west midlands','sandwell','dudley','walsall'],
+  'Wales':         ['cardiff','swansea','newport','wrexham','wales','welsh','aberystwyth','bangor'],
+  'Manchester':    ['manchester','salford','stockport','oldham','rochdale','bolton','bury','wigan','tameside'],
+  'West Yorkshire':['leeds','bradford','huddersfield','wakefield','halifax','calderdale','kirklees','west yorkshire'],
+  'East Yorkshire':['hull','york','east yorkshire','humber','scarborough','beverley','grimsby'],
+};
+
+function inRegion(location, regionName) {
+  if(!regionName) return true;
+  const l = location.toLowerCase();
+  const keys = REGIONS[regionName] || [];
+  return keys.some(k => l.includes(k));
+}
+
 function filter(jobs, cat) {
   return jobs.filter(j=>{
-    // Band filter - reject band 2 and below always
-    if(j.band!==undefined&&j.band<=2) return false;
-    if(cat.minBand&&j.band!==undefined&&j.band<cat.minBand) return false;
-    if(cat.maxBand&&j.band!==undefined&&j.band>cat.maxBand) return false;
-    if(cat.exLoc&&j.location.toLowerCase().includes(cat.exLoc.toLowerCase())) return false;
-    const tl=j.title.toLowerCase();
-    if(cat.inc?.length&&!cat.inc.some(w=>tl.includes(w))) return false;
-    if(cat.exc?.some(w=>tl.includes(w))) return false;
-    if(!isNhsOrg(j.organisation)) return false;
-    const hay=`${j.title} ${j.contractType??''} ${j.workingPattern??''}`.toLowerCase();
-    // Reject bank, fixed term, locum, temporary
+    const tl = j.title.toLowerCase();
+    const hay = `${j.title} ${j.contractType??''} ${j.workingPattern??''}`.toLowerCase();
+
+    // 1. Reject bank, locum, fixed term, temporary, agency
     if(/\b(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)\b/.test(hay)) return false;
-    // Permanent only
-    if(j.contractType&&!j.contractType.toLowerCase().includes('permanent')) return false;
-    // Reject if explicitly says part time or part-time
-    const wp=(j.workingPattern||'').toLowerCase();
-    if(wp&&!wp.includes('full')&&(wp.includes('part')||wp.includes('term time'))) return false;
-    // Reject fixed term, bank, locum, temporary in title or contract
-    const titleLow=j.title.toLowerCase();
-    if(titleLow.includes('fixed term')||titleLow.includes('bank')||titleLow.includes('locum')||titleLow.includes('part time')||titleLow.includes('part-time')) return false;
+    if(tl.includes('bank ')||tl.includes(' bank')) return false;
+
+    // 2. Permanent only
+    if(j.contractType && !j.contractType.toLowerCase().includes('permanent')) return false;
+
+    // 3. No part time - reject ONLY if explicitly part time
+    const wp = (j.workingPattern||'').toLowerCase();
+    if(wp.includes('part time')||wp.includes('part-time')) return false;
+    if(tl.includes('part time')||tl.includes('part-time')) return false;
+
+    // 4. No Band 2 or below - but only reject if band is explicitly mentioned
+    if(j.band!==undefined && j.band<=2) return false;
+
+    // 5. Min band check - only apply if band is known
+    if(cat.minBand && j.band!==undefined && j.band<cat.minBand) return false;
+
+    // 6. Max band check
+    if(cat.maxBand && j.band!==undefined && j.band>cat.maxBand) return false;
+
+    // 7. Title must include category keywords
+    if(cat.inc?.length && !cat.inc.some(w=>tl.includes(w))) return false;
+
+    // 8. Title must not include blocked words
+    if(cat.exc?.some(w=>tl.includes(w))) return false;
+
+    // 9. Must be NHS organisation
+    if(!isNhsOrg(j.organisation)) return false;
+
+    // 10. Exclude specific location (e.g. not London)
+    if(cat.exLoc && j.location.toLowerCase().includes(cat.exLoc.toLowerCase())) return false;
+
+    // 11. Must be in target region (for location-specific categories)
+    if(cat.region && !inRegion(j.location, cat.region)) return false;
+
     return true;
   });
 }
@@ -92,7 +128,10 @@ async function getJobs(cat) {
   try{
     const seen=new Set(), all=[];
     for(let p=1;p<=20;p++){
-      const jobs=await fetchPage(cat.kw,cat.loc||'',p);
+      // Search without location for region-specific SW categories
+      // We filter by location ourselves which is more reliable
+      const searchLoc = cat.useSearchLoc ? cat.loc : cat.searchLoc||cat.loc||'';
+      const jobs=await fetchPage(cat.kw, searchLoc, p);
       if(!jobs.length) break;
       let added=0;
       for(const j of jobs){if(seen.has(j.id)) continue;seen.add(j.id);all.push(j);added++;}
@@ -109,37 +148,72 @@ async function getJobs(cat) {
 const CX=['nurse','nursing','doctor','consultant','registrar','physician','surgeon',
   'midwife','therapist','pharmacist','radiographer','psychologist','paramedic','sonographer'];
 
+const SW_INC=['support worker','healthcare support','health care support','care support',
+  'healthcare assistant','health care assistant','hca','hcsw','assistant practitioner',
+  'clinical support','theatre support','maternity support','surgical support'];
+const SW_EXC=['registered nurse','staff nurse','charge nurse','ward manager','ward sister',
+  'midwife','social worker','mental health worker','learning disability'];
+
 const CATS=[
-  {id:'admin-out',label:'Admin Outside London',kw:'administrator',loc:'',exLoc:'London',minBand:4,group:'Admin',inc:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'],exc:CX},
-  {id:'admin-lon',label:'Admin in London',kw:'administrator',loc:'London',minBand:4,group:'Admin',inc:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'],exc:CX},
-  {id:'sw-lon',label:'Support Worker in London',kw:'support worker',loc:'London',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','health care support','care support','healthcare assistant','health care assistant','hca','hcsw','assistant practitioner'],exc:['registered nurse','staff nurse','charge nurse','ward manager','midwife','social worker']},
-  {id:'sw-out',label:'Support Worker Outside London',kw:'support worker',loc:'',exLoc:'London',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','health care support','care support','healthcare assistant','health care assistant','hca','hcsw','assistant practitioner'],exc:['registered nurse','staff nurse','charge nurse','ward manager','midwife','social worker']},
-  {id:'sw-wm',label:'Support Worker West Midlands',kw:'support worker',loc:'West Midlands',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
-  {id:'sw-wales',label:'Support Worker in Wales',kw:'support worker',loc:'Wales',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
-  {id:'sw-manc',label:'Support Worker Manchester',kw:'support worker',loc:'Manchester',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
-  {id:'sw-wy',label:'Support Worker W Yorkshire',kw:'support worker',loc:'West Yorkshire',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
-  {id:'sw-ey',label:'Support Worker E Yorkshire',kw:'support worker',loc:'East Yorkshire',minBand:3,group:'Support Worker',inc:['support worker','healthcare support','healthcare assistant','hca','assistant practitioner'],exc:['registered nurse','staff nurse','midwife','social worker']},
-  {id:'nurse',label:'Staff Nurse',kw:'staff nurse',loc:'',minBand:5,maxBand:5,group:'Nursing',inc:['staff nurse','registered nurse','rgn','rmn'],exc:['assistant','support worker','student','trainee','apprentice','bank']},
-  {id:'mh-nurse',label:'Mental Health Nurse',kw:'mental health nurse',loc:'',group:'Nursing',inc:['mental health nurse','rmn','psychiatric nurse','mental health practitioner'],exc:['support worker','assistant','bank']},
-  {id:'res-nurse',label:'Research Nurse',kw:'research nurse',loc:'',group:'Nursing',inc:['research nurse','clinical research nurse','senior research nurse']},
-  {id:'fellow',label:'Clinical Fellow',kw:'clinical fellow',loc:'',group:'Clinical',inc:['clinical fellow','fellow','fy1','fy2','fy3','st1','st2','st3','st4','ct1','ct2','trust doctor','specialty doctor','specialty registrar','foundation year','junior clinical','sas doctor','associate specialist']},
-  {id:'coder',label:'Clinical Coder',kw:'clinical coder',loc:'',group:'Clinical',inc:['clinical coder','clinical coding','coding auditor','senior clinical coder','lead clinical coder']},
+  // ADMIN
+  {id:'admin-out',label:'Admin Outside London',kw:'administrator',loc:'',exLoc:'london',minBand:4,group:'Admin',
+    inc:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'],exc:CX},
+  {id:'admin-lon',label:'Admin in London',kw:'administrator',loc:'London',useSearchLoc:true,minBand:4,group:'Admin',
+    inc:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'],exc:CX},
+
+  // SUPPORT WORKERS - search broadly, filter by location ourselves
+  {id:'sw-lon',label:'Support Worker in London',kw:'healthcare assistant',loc:'',region:'London',minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-out',label:'Support Worker Outside London',kw:'healthcare assistant',loc:'',exLoc:'london',minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-wm',label:'Support Worker West Midlands',kw:'healthcare assistant',loc:'West Midlands',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-wales',label:'Support Worker in Wales',kw:'healthcare assistant',loc:'Wales',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-manc',label:'Support Worker Manchester',kw:'healthcare assistant',loc:'Manchester',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-wy',label:'Support Worker W Yorkshire',kw:'healthcare assistant',loc:'Leeds',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-ey',label:'Support Worker E Yorkshire',kw:'healthcare assistant',loc:'Hull',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+
+  // NURSING
+  {id:'nurse',label:'Staff Nurse',kw:'staff nurse',loc:'',minBand:5,maxBand:5,group:'Nursing',
+    inc:['staff nurse','registered nurse','rgn','rmn'],exc:['assistant','support worker','student','trainee','apprentice']},
+  {id:'mh-nurse',label:'Mental Health Nurse',kw:'mental health nurse',loc:'',group:'Nursing',
+    inc:['mental health nurse','rmn','psychiatric nurse','mental health practitioner'],exc:['support worker','assistant']},
+  {id:'res-nurse',label:'Research Nurse',kw:'research nurse',loc:'',group:'Nursing',
+    inc:['research nurse','clinical research nurse','senior research nurse']},
+
+  // CLINICAL
+  {id:'fellow',label:'Clinical Fellow',kw:'clinical fellow',loc:'',group:'Clinical',
+    inc:['clinical fellow','fellow','fy1','fy2','fy3','st1','st2','st3','st4','ct1','ct2','trust doctor','specialty doctor','specialty registrar','foundation year','junior clinical','sas doctor','associate specialist']},
+  {id:'coder',label:'Clinical Coder',kw:'clinical coder',loc:'',group:'Clinical',
+    inc:['clinical coder','clinical coding','coding auditor','senior clinical coder','lead clinical coder']},
   {id:'diet',label:'Dietician',kw:'dietitian',loc:'',group:'Clinical',inc:['dietitian','dietician']},
   {id:'micro',label:'Microbiology',kw:'microbiology',loc:'',group:'Clinical',inc:['microbiology','microbiologist']},
   {id:'phleb',label:'Phlebotomist Leader',kw:'phlebotomist',loc:'',group:'Clinical',inc:['phlebotomist','phlebotomy']},
-  {id:'res-asst',label:'Research Assistant',kw:'research assistant',loc:'',group:'Clinical',inc:['research assistant','research associate','research practitioner','research officer','clinical research','trial coordinator','study coordinator'],exc:['research nurse']},
-  {id:'sw3',label:'Social Worker',kw:'social worker',loc:'',group:'Clinical',inc:['social worker','amhp','approved mental health professional','practice educator'],exc:['support worker','healthcare assistant','admin']},
-  {id:'data',label:'Data Analyst',kw:'data analyst',loc:'',group:'Professional',inc:['data analyst','data analytics','information analyst','reporting analyst','data engineer','data scientist','performance analyst'],exc:['business intelligence','financial analyst']},
-  {id:'bi',label:'BI Analyst',kw:'business intelligence analyst',loc:'',group:'Professional',inc:['business intelligence','bi analyst','bi developer','bi lead','power bi','tableau']},
-  {id:'fa',label:'Financial Analyst',kw:'financial analyst',loc:'',group:'Professional',inc:['financial analyst','finance analyst','financial planning','fp&a','financial reporting']},
-  {id:'desk',label:'Desk Analyst',kw:'service desk analyst',loc:'',group:'Professional',inc:['desk analyst','service desk','helpdesk','1st line','2nd line','3rd line','it support analyst']},
-  {id:'fin',label:'Finance',kw:'finance officer',loc:'',group:'Professional',inc:['finance officer','finance manager','finance assistant','finance director','management accountant','financial accountant','senior accountant','accounts payable','accounts receivable','payroll','treasury','head of finance'],exc:['analyst','project manager']},
-  {id:'hr',label:'HR',kw:'human resources',loc:'',group:'Professional',inc:['hr advisor','hr officer','hr assistant','hr manager','hr director','hr business partner','human resources','people advisor','people partner','workforce','resourcing','recruitment advisor','employee relations','organisational development']},
-  {id:'it',label:'IT / Engineering',kw:'IT engineer',loc:'',group:'Professional',inc:['it engineer','network engineer','software developer','software engineer','infrastructure engineer','cyber security','cloud engineer','devops','solutions architect','technical architect','application developer','web developer','ict engineer'],exc:['clinical','biomedical','project manager']},
-  {id:'pm',label:'Project Manager',kw:'project manager',loc:'',group:'Professional',inc:['project manager','programme manager','project lead','project director','delivery manager','project officer'],exc:['nurse','doctor','support worker']},
-  {id:'ba',label:'Business Analyst',kw:'business analyst',loc:'',group:'Professional',inc:['business analyst','systems analyst','process analyst','transformation analyst'],exc:['business intelligence','data analyst','financial analyst','project manager']},
-  {id:'log',label:'Logistics',kw:'logistics',loc:'',group:'Professional',inc:['logistics','supply chain','procurement','stores officer','transport manager','fleet manager','inventory','materials manager']},
-  {id:'coord',label:'Coordinator',kw:'pathway coordinator',loc:'',group:'Professional',inc:['pathway coordinator','patient coordinator','care coordinator','referral coordinator','discharge coordinator','admissions coordinator','outpatient coordinator','appointments coordinator','waiting list coordinator','access coordinator','service coordinator','booking coordinator','patient flow']},
+  {id:'res-asst',label:'Research Assistant',kw:'research assistant',loc:'',group:'Clinical',
+    inc:['research assistant','research associate','research practitioner','research officer','clinical research','trial coordinator','study coordinator'],exc:['research nurse']},
+  {id:'sw3',label:'Social Worker',kw:'social worker',loc:'',group:'Clinical',
+    inc:['social worker','amhp','approved mental health professional','practice educator'],exc:['support worker','healthcare assistant','admin']},
+
+  // PROFESSIONAL
+  {id:'data',label:'Data Analyst',kw:'data analyst',loc:'',group:'Professional',
+    inc:['data analyst','data analytics','information analyst','reporting analyst','data engineer','data scientist','performance analyst'],exc:['business intelligence','financial analyst']},
+  {id:'bi',label:'BI Analyst',kw:'business intelligence analyst',loc:'',group:'Professional',
+    inc:['business intelligence','bi analyst','bi developer','bi lead','power bi','tableau']},
+  {id:'fa',label:'Financial Analyst',kw:'financial analyst',loc:'',group:'Professional',
+    inc:['financial analyst','finance analyst','financial planning','fp&a','financial reporting']},
+  {id:'desk',label:'Desk Analyst',kw:'service desk analyst',loc:'',group:'Professional',
+    inc:['desk analyst','service desk','helpdesk','1st line','2nd line','3rd line','it support analyst']},
+  {id:'fin',label:'Finance',kw:'finance officer',loc:'',group:'Professional',
+    inc:['finance officer','finance manager','finance assistant','finance director','management accountant','financial accountant','senior accountant','accounts payable','accounts receivable','payroll','treasury','head of finance'],exc:['analyst','project manager']},
+  {id:'hr',label:'HR',kw:'human resources',loc:'',group:'Professional',
+    inc:['hr advisor','hr officer','hr assistant','hr manager','hr director','hr business partner','human resources','people advisor','people partner','workforce','resourcing','recruitment advisor','employee relations','organisational development']},
+  {id:'it',label:'IT / Engineering',kw:'IT engineer',loc:'',group:'Professional',
+    inc:['it engineer','network engineer','software developer','software engineer','infrastructure engineer','cyber security','cloud engineer','devops','solutions architect','technical architect','application developer','web developer','ict engineer'],exc:['clinical','biomedical','project manager']},
+  {id:'pm',label:'Project Manager',kw:'project manager',loc:'',group:'Professional',
+    inc:['project manager','programme manager','project lead','project director','delivery manager','project officer'],exc:['nurse','doctor','support worker']},
+  {id:'ba',label:'Business Analyst',kw:'business analyst',loc:'',group:'Professional',
+    inc:['business analyst','systems analyst','process analyst','transformation analyst'],exc:['business intelligence','data analyst','financial analyst','project manager']},
+  {id:'log',label:'Logistics',kw:'logistics',loc:'',group:'Professional',
+    inc:['logistics','supply chain','procurement','stores officer','transport manager','fleet manager','inventory','materials manager']},
+  {id:'coord',label:'Coordinator',kw:'pathway coordinator',loc:'',group:'Professional',
+    inc:['pathway coordinator','patient coordinator','care coordinator','referral coordinator','discharge coordinator','admissions coordinator','outpatient coordinator','appointments coordinator','waiting list coordinator','access coordinator','service coordinator','booking coordinator','patient flow']},
 ];
 
 export default async function handler(req, res) {
