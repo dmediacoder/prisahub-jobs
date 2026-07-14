@@ -42,10 +42,15 @@ function parseNhs(html) {
   return jobs;
 }
 
-async function fetchPage(kw, loc, page=1) {
+async function fetchPage(kw, loc, page=1, opts={}) {
   const p=new URLSearchParams({keyword:kw,language:'en'});
   if(loc) p.set('location',loc);
   if(page>1) p.set('page',String(page));
+  // Apply NHS Jobs built-in filters at source
+  p.set('contractType','Permanent');          // Permanent only always
+  if(opts.fullTime) p.set('workingPattern','fullTime'); // Full time only
+  if(opts.minSalary){ p.set('payScheme','AfC'); p.set('salaryFrom',String(opts.minSalary)); }
+  if(opts.maxSalary) p.set('salaryTo',String(opts.maxSalary));
   const r=await fetch(`https://www.jobs.nhs.uk/candidate/search/results?${p}`,{
     headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36','Accept':'text/html','Accept-Language':'en-GB,en;q=0.9'}
   });
@@ -127,11 +132,14 @@ async function getJobs(cat) {
   if(cached&&Date.now()-cached.at<TTL) return cached.jobs;
   try{
     const seen=new Set(), all=[];
+    const fetchOpts={
+      fullTime: cat.fullTime||false,
+      minSalary: cat.minSalary||undefined,
+      maxSalary: cat.maxSalary||undefined,
+    };
     for(let p=1;p<=20;p++){
-      // Search without location for region-specific SW categories
-      // We filter by location ourselves which is more reliable
       const searchLoc = cat.useSearchLoc ? cat.loc : cat.searchLoc||cat.loc||'';
-      const jobs=await fetchPage(cat.kw, searchLoc, p);
+      const jobs=await fetchPage(cat.kw, searchLoc, p, fetchOpts);
       if(!jobs.length) break;
       let added=0;
       for(const j of jobs){if(seen.has(j.id)) continue;seen.add(j.id);all.push(j);added++;}
@@ -162,13 +170,13 @@ const CATS=[
     inc:['admin','administrator','administrative','secretary','clerk','receptionist','coordinator','officer','assistant','booking','pathway','clerical','pa to'],exc:CX},
 
   // SUPPORT WORKERS - search broadly, filter by location ourselves
-  {id:'sw-lon',label:'Support Worker in London',kw:'healthcare assistant',loc:'',region:'London',minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
-  {id:'sw-out',label:'Support Worker Outside London',kw:'healthcare assistant',loc:'',exLoc:'london',minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
-  {id:'sw-wm',label:'Support Worker West Midlands',kw:'healthcare assistant',loc:'West Midlands',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
-  {id:'sw-wales',label:'Support Worker in Wales',kw:'healthcare assistant',loc:'Wales',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
-  {id:'sw-manc',label:'Support Worker Manchester',kw:'healthcare assistant',loc:'Manchester',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
-  {id:'sw-wy',label:'Support Worker W Yorkshire',kw:'healthcare assistant',loc:'Leeds',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
-  {id:'sw-ey',label:'Support Worker E Yorkshire',kw:'healthcare assistant',loc:'Hull',useSearchLoc:true,minBand:3,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-lon',label:'Support Worker in London',kw:'healthcare assistant',loc:'London',useSearchLoc:true,region:'London',minBand:3,fullTime:true,minSalary:24071,maxSalary:29969,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-out',label:'Support Worker Outside London',kw:'healthcare assistant',loc:'',exLoc:'london',minBand:3,fullTime:true,minSalary:24071,maxSalary:29969,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-wm',label:'Support Worker West Midlands',kw:'healthcare assistant',loc:'West Midlands',useSearchLoc:true,minBand:3,fullTime:true,minSalary:24071,maxSalary:29969,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-wales',label:'Support Worker in Wales',kw:'healthcare assistant',loc:'Wales',useSearchLoc:true,minBand:3,fullTime:true,minSalary:24071,maxSalary:29969,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-manc',label:'Support Worker Manchester',kw:'healthcare assistant',loc:'Manchester',useSearchLoc:true,minBand:3,fullTime:true,minSalary:24071,maxSalary:29969,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-wy',label:'Support Worker W Yorkshire',kw:'healthcare assistant',loc:'Leeds',useSearchLoc:true,minBand:3,fullTime:true,minSalary:24071,maxSalary:29969,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-ey',label:'Support Worker E Yorkshire',kw:'healthcare assistant',loc:'Hull',useSearchLoc:true,minBand:3,fullTime:true,minSalary:24071,maxSalary:29969,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
 
   // NURSING
   {id:'nurse',label:'Staff Nurse',kw:'staff nurse',loc:'',minBand:5,maxBand:5,group:'Nursing',
