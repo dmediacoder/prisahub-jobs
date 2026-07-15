@@ -770,17 +770,22 @@ export default async function handler(req, res) {
   const {category, page=1}=req.query;
   const pg=parseInt(page), per=20;
 
-  let targets=CATS;
-  if(category && category!=='All'){
-    targets=CATS.filter(c=>c.label===category||c.id===category);
-    if(!targets.length) return res.status(404).json({error:'Unknown category'});
+  // MUST specify a category - never fetch all at once (causes timeout)
+  if(!category || category==='All') {
+    return res.status(200).json({
+      fetchedAt:new Date().toISOString(),
+      total:0, page:1, pages:0, jobs:[],
+      message:'Please select a category'
+    });
   }
 
+  const targets=CATS.filter(c=>c.label===category||c.id===category);
+  if(!targets.length) return res.status(404).json({error:'Unknown category'});
+
   const all=[];
-  await Promise.all(targets.map(async cat=>{
-    const jobs=await getJobs(cat);
-    jobs.forEach(j=>all.push({...j, category:cat.label, group:cat.group}));
-  }));
+  // Fetch the single category
+  const jobs=await getJobs(targets[0]);
+  jobs.forEach(j=>all.push({...j, category:targets[0].label, group:targets[0].group}));
 
   all.sort((a,b)=>{
     if(!a.postedDate&&!b.postedDate) return 0;
