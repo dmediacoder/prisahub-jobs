@@ -67,7 +67,7 @@ function isNhsOrg(org) {
 
 function applyFilter(jobs, cat) {
   return jobs.filter(j=>{
-    const tl=j.title.toLowerCase();
+    const tl=j.title.toLowerCase().trim();
     const ct=(j.contractType||'').toLowerCase();
     const wp=(j.workingPattern||'').toLowerCase();
     if(!isNhsOrg(j.organisation)) return false;
@@ -79,10 +79,10 @@ function applyFilter(jobs, cat) {
     if(cat.minBand && j.band!==undefined && j.band<cat.minBand) return false;
     if(cat.maxBand && j.band!==undefined && j.band>cat.maxBand) return false;
     if(cat.exLoc && j.location.toLowerCase().includes(cat.exLoc.toLowerCase())) return false;
-    // EXACT title matching - title must contain at least one of the inc terms
-    if(cat.inc?.length && !cat.inc.some(w=>tl.includes(w.toLowerCase()))) return false;
-    // Title must NOT contain any exc terms
+    // Check EXCLUDES first - if any exc word appears in title, reject immediately
     if(cat.exc?.some(w=>tl.includes(w.toLowerCase()))) return false;
+    // Then check INCLUDES - title must contain at least one inc term
+    if(cat.inc?.length && !cat.inc.some(w=>tl.includes(w.toLowerCase()))) return false;
     return true;
   });
 }
@@ -168,67 +168,144 @@ const SW_INC = [
   'decontamination support worker',
 ];
 const SW_EXC = [
+  // Nursing titles - must not appear in SW
   'registered nurse','staff nurse','charge nurse','ward manager','ward sister',
-  'nurse specialist','nurse consultant','nurse practitioner','advanced nurse',
-  'community nurse','district nurse','school nurse',
-  'midwife','midwifery','doctor','consultant','registrar','physician',
-  'surgeon','pharmacist','radiographer','psychologist','paramedic',
-  'sonographer','occupational therapist','physiotherapist','speech therapist',
-  'social worker','manager','senior manager','team leader','lead',
+  'nurse specialist','nurse consultant','nurse practitioner','advanced nurse practitioner',
+  'community nurse','district nurse','school nurse','practice nurse',
+  'nurse associate','nursing associate',
+  // Midwifery
+  'midwife','midwifery','student midwife',
+  // Medical
+  'doctor','consultant','registrar','physician','surgeon','foundation doctor',
+  // Allied Health Professionals (qualified, not assistants)
+  'pharmacist','radiographer','psychologist','paramedic','sonographer',
+  'occupational therapist','physiotherapist','speech and language therapist',
+  'speech therapist','dietitian','dietician','podiatrist','orthotist',
+  'orthoptist','prosthetist',
+  // Social Work (qualified)
+  'social worker','approved mental health professional','amhp',
+  // Management titles when standalone
+  'ward manager','service manager','clinical manager','team manager',
+  'operations manager','general manager','deputy manager',
 ];
 
-// ADMIN - all variants, no clinical titles
+// ADMIN - complete list, Band 5+, salary £32,000+
 const ADMIN_INC = [
+  // General Administration
   'administrative assistant','administrator','administration officer',
   'administrative officer','administrative coordinator','senior administrator',
   'administration team leader','office administrator','business administrator',
-  'executive administrator','receptionist','medical receptionist',
-  'senior receptionist','outpatient receptionist','ward receptionist',
-  'clinic receptionist','health records receptionist','switchboard operator',
+  'executive administrator',
+  // Reception & Front of House
+  'receptionist','medical receptionist','senior receptionist',
+  'outpatient receptionist','ward receptionist','clinic receptionist',
+  'health records receptionist','switchboard operator',
+  // Secretarial & PA
   'medical secretary','senior medical secretary','personal assistant',
   'executive assistant','team secretary','clinical secretary',
   'divisional secretary','directorate secretary','executive support officer',
+  // Patient Services
   'patient services administrator','patient pathway coordinator',
   'patient pathway administrator','patient access administrator',
   'patient booking coordinator','appointments administrator',
   'admissions officer','admissions coordinator','waiting list coordinator',
   'referral coordinator','clinic coordinator','outpatient administrator',
   'theatre booking coordinator','cancer pathway coordinator',
+  // Health Records
   'health records clerk','health records officer','medical records officer',
   'medical records administrator','records coordinator',
+  // HR & Workforce Admin
   'hr administrator','workforce administrator','recruitment administrator',
-  'medical staffing administrator','esr administrator','hr assistant',
-  'people administrator','workforce officer','learning and development administrator',
+  'medical staffing administrator','esr administrator','people administrator',
+  'workforce officer','learning and development administrator',
   'temporary staffing administrator',
+  // Finance & Procurement Admin
   'finance administrator','finance assistant','accounts assistant',
   'payroll administrator','procurement administrator','purchasing officer',
   'supplies administrator','accounts payable officer','accounts receivable officer',
+  // Digital & Information Admin
   'information administrator','data administrator','information officer',
   'data quality officer','digital administrator','epr administrator',
-  'clinical systems administrator',
+  'clinical systems administrator','systems administrator',
+  // Governance & Quality Admin
   'governance administrator','quality administrator','risk administrator',
   'compliance administrator','audit administrator','complaints administrator',
   'patient safety administrator',
+  // Project & Programme Admin
   'project administrator','project support officer','programme support officer',
   'pmo administrator','project coordinator','transformation administrator',
   'service improvement administrator',
+  // Operational Support
   'operational administrator','operations coordinator','service administrator',
   'directorate administrator','department administrator','divisional administrator',
   'business support officer','business support administrator','operational support officer',
-  'community administrator','mental health administrator','community team administrator',
-  'crisis team administrator','camhs administrator','therapy administrator',
+  // Community & Mental Health Admin
+  'community administrator','mental health administrator',
+  'community team administrator','crisis team administrator',
+  'camhs administrator','therapy administrator',
+  // Maternity & Children Admin
   'maternity administrator','neonatal administrator','paediatric administrator',
+  // Research & Education Admin
   'research administrator','clinical trials administrator',
   'medical education administrator','training administrator','education coordinator',
+  // Executive & Corporate
   'corporate administrator','board administrator','committee administrator',
   'corporate governance administrator','executive office administrator',
+  // Senior Admin Roles
   'senior administrative officer','administration manager','office manager',
-  'business manager','corporate services manager','service manager','general manager',
+  'business manager','corporate services manager','service manager',
+  'general manager','operations manager',
+  // Communications & Media
+  'communications manager','communications officer','communications adviser',
+  'communications advisor','senior communications officer',
+  'senior communications manager','head of communications',
+  'director of communications','communications business partner',
+  'communications coordinator','media officer','media manager',
+  'press officer','press manager','head of media',
+  'digital communications officer','digital communications manager',
+  'social media manager','social media officer',
+  'internal communications officer','internal communications manager',
+  'public affairs manager','public affairs officer',
+  'stakeholder engagement manager','stakeholder engagement officer',
+  'marketing manager','marketing officer','head of marketing',
+  'marketing communications manager','brand manager',
+  'content manager','content officer','web content manager',
+  'publications officer','publications manager','editor',
+  'graphic designer','design officer',
+  // Engagement & Involvement
+  'patient engagement manager','patient experience manager',
+  'public engagement officer','community engagement manager',
+  'involvement officer','engagement coordinator',
+  // Knowledge & Library
+  'knowledge manager','library manager','library officer','librarian',
+  'knowledge officer','information specialist',
+  // Facilities & Support Services Management
+  'facilities manager','facilities officer','facilities coordinator',
+  'hotel services manager','catering manager','domestic services manager',
+  'housekeeping manager','linen services manager','portering manager',
+  'soft fm manager',
+  // General Management
+  'service delivery manager','delivery manager','performance manager',
+  'quality manager','improvement manager','transformation officer',
+  'change officer','strategy officer','strategy manager','policy officer',
+  'policy manager','policy adviser','policy advisor','senior policy officer',
+  'head of policy','programme officer','programme coordinator',
+  'business development manager','relationship manager','account manager',
+  'contract manager','contract officer','performance officer',
+  'planning officer','planning manager','strategy analyst',
+  'information governance officer','information governance manager',
+  'data protection officer','caldicott guardian support',
+  'freedom of information officer','foi officer',
+  'equalities officer','equality officer','diversity officer',
+  'sustainability officer','green officer',
+  'volunteering manager','volunteer coordinator',
+  'fundraising manager','charity officer',
 ];
 const ADMIN_EXC = [
   'nurse','nursing','doctor','consultant','registrar','physician','surgeon',
   'midwife','therapist','pharmacist','radiographer','psychologist','paramedic',
   'sonographer','support worker','healthcare assistant','hca',
+  'biomedical','clinical scientist','social worker',
 ];
 
 // PROJECT MANAGER
@@ -396,24 +473,63 @@ const FIN_EXC = [
   'project manager','business analyst','it',
 ];
 
-// HR
+// HR - exact titles from specification
 const HR_INC = [
-  'hr administrator','hr assistant','hr officer','hr advisor',
-  'hr manager','hr director','hr business partner','hr lead',
-  'human resources administrator','human resources assistant',
-  'human resources officer','human resources advisor','human resources manager',
-  'workforce administrator','workforce officer','workforce advisor',
-  'workforce manager','people advisor','people partner','people manager',
-  'resourcing advisor','resourcing manager','recruitment administrator',
-  'recruitment advisor','recruitment manager','medical staffing administrator',
-  'employee relations advisor','organisational development manager',
-  'learning and development administrator','learning and development manager',
-  'training administrator','training officer','esr administrator',
-  'temporary staffing administrator','temporary staffing manager',
+  // General HR
+  'hr assistant','hr administrator','hr officer','hr adviser','hr advisor',
+  'senior hr adviser','senior hr advisor','hr business partner',
+  'senior hr business partner','lead hr business partner',
+  'hr manager','head of human resources','director of human resources',
+  'chief people officer',
+  // Workforce
+  'workforce administrator','workforce officer','workforce adviser','workforce advisor',
+  'workforce information officer','workforce analyst','workforce planning analyst',
+  'workforce planning manager','workforce development manager',
+  'workforce transformation manager','workforce project manager',
+  // Recruitment & Resourcing
+  'recruitment administrator','recruitment officer','recruitment adviser',
+  'recruitment advisor','recruitment business partner','recruitment manager',
+  'resourcing officer','resourcing adviser','resourcing advisor',
+  'talent acquisition adviser','talent acquisition advisor',
+  'talent acquisition partner','talent acquisition manager',
+  'medical recruitment officer','medical staffing officer','medical staffing manager',
+  // Employee Relations
+  'employee relations officer','employee relations adviser','employee relations advisor',
+  'senior employee relations adviser','senior employee relations advisor',
+  'employee relations manager','case manager (hr)','case manager hr',
+  'hr case adviser','hr case advisor',
+  // Learning & OD
+  'learning and development administrator','learning and development officer',
+  'learning and development adviser','learning and development advisor',
+  'learning and development manager','l&d administrator','l&d officer',
+  'l&d adviser','l&d advisor','l&d manager',
+  'organisational development officer','organisational development adviser',
+  'organisational development advisor','od business partner','od manager',
+  'leadership development manager','training coordinator','education coordinator',
+  // Pay, Reward & HR Systems
+  'esr administrator','esr officer','esr systems analyst',
+  'payroll officer','payroll manager',
+  'hr systems administrator','hr systems analyst',
+  'hr information systems analyst','hris analyst',
+  'reward adviser','reward advisor','reward manager',
+  'job evaluation adviser','job evaluation advisor',
+  // EDI
+  'equality diversity and inclusion officer','edi officer','edi adviser','edi advisor',
+  'inclusion manager','workforce equality officer','staff experience officer',
+  // Wellbeing
+  'staff wellbeing officer','wellbeing adviser','wellbeing advisor',
+  'health and wellbeing manager','staff experience manager',
+  // Project & Transformation
+  'hr project officer','hr project manager','workforce transformation officer',
+  'workforce transformation manager','people transformation manager',
+  'hr change manager','programme manager (people)','people programme manager',
+  // Analytics
+  'hr analyst','people analyst','workforce information analyst',
+  'hr data analyst','people analytics manager','hr reporting analyst',
 ];
 const HR_EXC = [
   'nurse','doctor','support worker','healthcare assistant',
-  'project manager','business analyst','it',
+  'project manager','business analyst','it engineer','software',
 ];
 
 // NURSING
@@ -552,8 +668,8 @@ const EST_INC = [
 // DEFINE ALL CATEGORIES
 const CATS=[
   // ADMIN
-  {id:'admin-out', label:'Admin Outside London', kw:'administrator', loc:'', exLoc:'london', minBand:4, minSalary:0, group:'Admin', inc:ADMIN_INC, exc:ADMIN_EXC},
-  {id:'admin-lon', label:'Admin in London',       kw:'administrator', loc:'London', minBand:4, minSalary:0, group:'Admin', inc:ADMIN_INC, exc:ADMIN_EXC},
+  {id:'admin-out', label:'Admin Outside London', kw:'administrator', loc:'', exLoc:'london', minBand:5, minSalary:32000, group:'Admin', inc:ADMIN_INC, exc:ADMIN_EXC},
+  {id:'admin-lon', label:'Admin in London',       kw:'administrator', loc:'London', minBand:5, minSalary:32000, group:'Admin', inc:ADMIN_INC, exc:ADMIN_EXC},
 
   // SUPPORT WORKERS
   {id:'sw-lon',   label:'Support Worker in London',      kw:'healthcare assistant', loc:'London',       minBand:3, minSalary:24071, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
