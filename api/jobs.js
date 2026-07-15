@@ -419,13 +419,13 @@ const EST_INC=['estates assistant','estates administrator','estates officer',
 const CATS=[
   {id:'admin-out', label:'Admin Outside London', kw:'administrator',        loc:'',            exLoc:'london', minBand:5, minSalary:32000, group:'Admin',          inc:ADMIN_INC, exc:ADMIN_EXC},
   {id:'admin-lon', label:'Admin in London',       kw:'administrator',        loc:'London',                      minBand:5, minSalary:32000, group:'Admin',          inc:ADMIN_INC, exc:ADMIN_EXC},
-  {id:'sw-lon',    label:'Support Worker in London',       kw:'healthcare assistant', loc:'London',             minBand:3, minSalary:24071, group:'Support Worker', inc:SW_INC,    exc:SW_EXC},
-  {id:'sw-out',    label:'Support Worker Outside London',  kw:'healthcare assistant', loc:'',      exLoc:'london', minBand:3, minSalary:24071, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-wm',     label:'Support Worker West Midlands',   kw:'healthcare assistant', loc:'West Midlands',      minBand:3, minSalary:24071, group:'Support Worker', inc:SW_INC,    exc:SW_EXC},
-  {id:'sw-wales',  label:'Support Worker in Wales',        kw:'healthcare assistant', loc:'Wales',              minBand:3, minSalary:24071, group:'Support Worker', inc:SW_INC,    exc:SW_EXC},
-  {id:'sw-manc',   label:'Support Worker Manchester',      kw:'healthcare assistant', loc:'Manchester',         minBand:3, minSalary:24071, group:'Support Worker', inc:SW_INC,    exc:SW_EXC},
-  {id:'sw-wy',     label:'Support Worker W Yorkshire',     kw:'healthcare assistant', loc:'Leeds',              minBand:3, minSalary:24071, group:'Support Worker', inc:SW_INC,    exc:SW_EXC},
-  {id:'sw-ey',     label:'Support Worker E Yorkshire',     kw:'healthcare assistant', loc:'Hull',               minBand:3, minSalary:24071, group:'Support Worker', inc:SW_INC,    exc:SW_EXC},
+  {id:'sw-lon',    label:'Support Worker in London',       kw:'healthcare assistant', loc:'London',                      group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-out',    label:'Support Worker Outside London',  kw:'healthcare assistant', loc:'',      exLoc:'london', group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-wm',     label:'Support Worker West Midlands',   kw:'healthcare assistant', loc:'West Midlands',           group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-wales',  label:'Support Worker in Wales',        kw:'healthcare assistant', loc:'Wales',                   group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-manc',   label:'Support Worker Manchester',      kw:'healthcare assistant', loc:'Manchester',              group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-wy',     label:'Support Worker W Yorkshire',     kw:'healthcare assistant', loc:'Leeds',                   group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-ey',     label:'Support Worker E Yorkshire',     kw:'healthcare assistant', loc:'Hull',                    group:'Support Worker', inc:SW_INC, exc:SW_EXC},
   {id:'nurse',     label:'Staff Nurse',           kw:'staff nurse',          loc:'',            minBand:5, maxBand:5,             group:'Nursing',        inc:NURSE_INC,   exc:NURSE_EXC},
   {id:'mh-nurse',  label:'Mental Health Nurse',   kw:'mental health nurse',  loc:'',                                               group:'Nursing',        inc:MH_NURSE_INC,exc:MH_NURSE_EXC},
   {id:'res-nurse', label:'Research Nurse',        kw:'research nurse',       loc:'',                                               group:'Nursing',        inc:RES_NURSE_INC},
@@ -472,15 +472,31 @@ export default async function handler(req, res) {
     return res.status(200).json(cached.data);
   }
 
-  // Fetch ONE page from NHS Jobs only
-  const raw=await fetchPage(cat.kw, cat.loc||'', pg, cat.minSalary||0);
+  // Fetch up to 10 NHS Jobs pages per request
+  // NHS Jobs returns ~10 jobs per page
+  // 10 pages = ~100 raw results, keeps us under Vercel 60s timeout
+  const nhsPage = parseInt(req.query.nhsPage||'1');
+  const seen=new Set(), raw=[];
+  let lastPageHadResults = true;
+
+  for(let p=nhsPage; p<nhsPage+10; p++){
+    const pageJobs=await fetchPage(cat.kw, cat.loc||'', p, cat.minSalary||0);
+    if(!pageJobs.length){ lastPageHadResults=false; break; }
+    for(const j of pageJobs){ if(seen.has(j.id)) continue; seen.add(j.id); raw.push(j); }
+    if(pageJobs.length < 8) { lastPageHadResults=false; break; } // Last page
+  }
+
   const filtered=applyFilter(raw, cat);
+  const nextNhsPage = lastPageHadResults ? nhsPage+10 : null;
 
   const data={
     fetchedAt:new Date().toISOString(),
     total:filtered.length,
-    page:pg, pages:filtered.length>=per?pg+1:pg,
-    jobs:filtered.slice(0,per)
+    page:pg,
+    pages:nextNhsPage ? pg+1 : pg,
+    nextNhsPage,
+    hasMore: !!nextNhsPage,
+    jobs:filtered
   };
 
   CACHE.set(cacheKey,{at:Date.now(),data});
