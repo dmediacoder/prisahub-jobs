@@ -116,7 +116,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
     </div>
   </div>
   <div class="stats-strip">
-    <div class="stat"><div class="stat-n" id="sn-total" style="color:#3b82f6">—</div><div class="stat-l">Total Jobs</div></div>
     <div class="stat"><div class="stat-n" style="color:#6d28d9">100%</div><div class="stat-l">Permanent</div></div>
     <div class="stat"><div class="stat-n" style="color:#059669">30</div><div class="stat-l">Categories</div></div>
     <div class="stat"><div class="stat-n" id="sn-upd" style="color:#f59e0b;font-size:11px">Live</div><div class="stat-l">Updated</div></div>
@@ -176,7 +175,6 @@ async function load(pg){
     var r=await fetch(q); if(!r.ok) throw new Error('HTTP '+r.status);
     var d=await r.json();
     _jobs=d.jobs||[]; _pgs=d.pages||1; _tot=d.total||0;
-    document.getElementById('sn-total').textContent=_tot;
     document.getElementById('sn-upd').textContent=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
     render(); pgn(); hdr();
   }catch(ex){
