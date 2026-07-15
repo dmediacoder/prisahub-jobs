@@ -30,9 +30,20 @@ function parseNhs(html) {
       const om=inn.match(/<h3[^>]*>([\s\S]*?)<div[^>]*class="location-font-size"/i); if(om) org=clean(om[1]);
       const lm=inn.match(/<div[^>]*class="location-font-size"[^>]*>([\s\S]*?)<\/div>/i); if(lm) loc=clean(lm[1]).replace(/,\s*$/,'');
     }
-    const salary=pick(b,'search-result-salary'), posted=pick(b,'search-result-publicationDate'),
-          closing=pick(b,'search-result-closingDate'), contract=pick(b,'search-result-jobType'),
+    const salary=pick(b,'search-result-salary'),
+          closing=pick(b,'search-result-closingDate'),
+          contract=pick(b,'search-result-jobType'),
           pattern=pick(b,'search-result-workingPattern');
+    // Try multiple date field names NHS Jobs uses
+    let posted=pick(b,'search-result-publicationDate')
+             ||pick(b,'search-result-posted')
+             ||pick(b,'search-result-datePosted')
+             ||pick(b,'search-result-date');
+    // Also try to extract date directly from block text patterns
+    if(!posted){
+      const dm=b.match(/(?:posted|published|date)[^>]*?(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})/i);
+      if(dm) posted=dm[1];
+    }
     const ref=href.match(/\/jobadvert\/([^?]+)/), id=ref?ref[1]:`${jobs.length}-${title.slice(0,20)}`;
     jobs.push({id,title,organisation:org,location:loc,
       salary:salary||undefined, band:getBand(`${title} ${salary}`),
@@ -480,7 +491,7 @@ export default async function handler(req, res) {
 
   // Fetch ALL pages upfront, sort by date, then paginate ourselves
   // This guarantees page 1 = newest jobs, page 2 = next newest, etc
-  const cacheAllKey=`${cat.id}-all`;
+  const cacheAllKey=`${cat.id}-all-v2`; // v2 forces fresh sort
   let allFiltered=[];
 
   const cachedAll=CACHE.get(cacheAllKey);
