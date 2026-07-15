@@ -78,20 +78,46 @@ function isNhsOrg(org) {
 
 function applyFilter(jobs, cat) {
   return jobs.filter(j=>{
-    const tl=j.title.toLowerCase().trim();
-    const ct=(j.contractType||'').toLowerCase();
-    const wp=(j.workingPattern||'').toLowerCase();
+    const tl  = j.title.toLowerCase().trim();
+    const ct  = (j.contractType||'').toLowerCase();
+    const wp  = (j.workingPattern||'').toLowerCase();
+    const sal = (j.salary||'').toLowerCase();
+    // Combine all text fields to check for banned terms
+    const all = `${tl} ${ct} ${wp} ${sal}`;
+
+    // 1. Must be NHS organisation
     if(!isNhsOrg(j.organisation)) return false;
+
+    // 2. Permanent only - reject if contract type is set and not permanent
     if(ct && !ct.includes('permanent')) return false;
-    if(/\b(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)\b/.test(tl+' '+ct)) return false;
+
+    // 3. No bank, fixed term, locum, temporary, agency - check ALL fields
+    if(/(bank\s+(?:worker|staff|nurse|hca|support)|bank\s+shift|fixed[\-\s]?term|locum|secondment|temporary\s+contract|agency\s+staff)/.test(all)) return false;
+    // Also catch standalone bank in title
+    if(/bank/.test(tl) && !tl.includes('blood bank') && !tl.includes('bank manager') && !tl.includes('eye bank')) return false;
+
+    // 4. No part time
     if(wp.includes('part time')||wp.includes('part-time')) return false;
     if(tl.includes('part time')||tl.includes('part-time')) return false;
+
+    // 5. Reject Band 2 explicitly stated in title or salary
+    if(/band\s*2/.test(tl)||/band\s*2/.test(sal)) return false;
+    // Also reject if band number is parsed and is 2 or below
     if(j.band!==undefined && j.band<=2) return false;
+
+    // 7. Category min/max band
     if(cat.minBand && j.band!==undefined && j.band<cat.minBand) return false;
     if(cat.maxBand && j.band!==undefined && j.band>cat.maxBand) return false;
+
+    // 8. Exclude location
     if(cat.exLoc && j.location.toLowerCase().includes(cat.exLoc.toLowerCase())) return false;
+
+    // 9. Title exclusions
     if(cat.exc?.length && cat.exc.some(ex=>tl.includes(ex.toLowerCase()))) return false;
+
+    // 10. Title inclusions
     if(cat.inc?.length && !cat.inc.some(inc=>tl.includes(inc.toLowerCase()))) return false;
+
     return true;
   });
 }
@@ -491,7 +517,7 @@ export default async function handler(req, res) {
 
   // Fetch ALL pages upfront, sort by date, then paginate ourselves
   // This guarantees page 1 = newest jobs, page 2 = next newest, etc
-  const cacheAllKey=`${cat.id}-all-v2`; // v2 forces fresh sort
+  const cacheAllKey=`${cat.id}-all-v4`; // v4 - removed salary amount check, only explicit band2
   let allFiltered=[];
 
   const cachedAll=CACHE.get(cacheAllKey);
