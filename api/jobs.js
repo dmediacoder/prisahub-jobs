@@ -472,30 +472,21 @@ export default async function handler(req, res) {
     return res.status(200).json(cached.data);
   }
 
-  // Fetch up to 10 NHS Jobs pages per request
-  // NHS Jobs returns ~10 jobs per page
-  // 10 pages = ~100 raw results, keeps us under Vercel 60s timeout
-  const nhsPage = parseInt(req.query.nhsPage||'1');
+  // Fetch 5 pages from NHS Jobs (50 raw results, fast enough)
   const seen=new Set(), raw=[];
-  let lastPageHadResults = true;
-
-  for(let p=nhsPage; p<nhsPage+10; p++){
+  for(let p=pg; p<pg+5; p++){
     const pageJobs=await fetchPage(cat.kw, cat.loc||'', p, cat.minSalary||0);
-    if(!pageJobs.length){ lastPageHadResults=false; break; }
+    if(!pageJobs.length) break;
     for(const j of pageJobs){ if(seen.has(j.id)) continue; seen.add(j.id); raw.push(j); }
-    if(pageJobs.length < 8) { lastPageHadResults=false; break; } // Last page
+    if(pageJobs.length < 8) break;
   }
-
   const filtered=applyFilter(raw, cat);
-  const nextNhsPage = lastPageHadResults ? nhsPage+10 : null;
 
   const data={
     fetchedAt:new Date().toISOString(),
     total:filtered.length,
     page:pg,
-    pages:nextNhsPage ? pg+1 : pg,
-    nextNhsPage,
-    hasMore: !!nextNhsPage,
+    pages:raw.length>=40 ? pg+1 : pg,
     jobs:filtered
   };
 
