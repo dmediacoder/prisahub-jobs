@@ -1,4 +1,4 @@
-// Prisahub Jobs API - Fast version: 1 page per request, cached
+// Prisahub Jobs API - NHS England - Simple stable version
 const CACHE = new Map();
 const TTL = 30 * 60 * 1000;
 
@@ -47,13 +47,15 @@ async function fetchPage(kw, loc, page=1, minSalary=0) {
   if(loc) p.set('location', loc);
   if(page>1) p.set('page', String(page));
   if(minSalary>0){ p.set('payScheme','AfC'); p.set('salaryFrom',String(minSalary)); }
-  const r=await fetch(`https://www.jobs.nhs.uk/candidate/search/results?${p}`,{
-    headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
-             'Accept':'text/html','Accept-Language':'en-GB,en;q=0.9'},
-    signal:AbortSignal.timeout(8000)
-  });
-  if(!r.ok) return [];
-  return parseNhs(await r.text());
+  try {
+    const r=await fetch(`https://www.jobs.nhs.uk/candidate/search/results?${p}`,{
+      headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+               'Accept':'text/html','Accept-Language':'en-GB,en;q=0.9'},
+      signal:AbortSignal.timeout(8000)
+    });
+    if(!r.ok) return [];
+    return parseNhs(await r.text());
+  } catch(e){ return []; }
 }
 
 function isNhsOrg(org) {
@@ -81,6 +83,18 @@ function applyFilter(jobs, cat) {
     if(cat.inc?.length && !cat.inc.some(inc=>tl.includes(inc.toLowerCase()))) return false;
     return true;
   });
+}
+
+// Parse posted date string from NHS Jobs e.g. "14 July 2026" -> "2026-07-14"
+function parseDate(str) {
+  if(!str) return null;
+  const months={january:1,february:2,march:3,april:4,may:5,june:6,
+                july:7,august:8,september:9,october:10,november:11,december:12};
+  const m=str.toLowerCase().match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+  if(!m) return null;
+  const mo=months[m[2]];
+  if(!mo) return null;
+  return `${m[3]}-${String(mo).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
 }
 
 // ── CATEGORY TITLE LISTS ──────────────────────────────────────
@@ -148,17 +162,17 @@ const ADMIN_INC=['administrative assistant','administrator','administration offi
   'medical records administrator','records coordinator',
   'governance administrator','quality administrator','risk administrator',
   'compliance administrator','audit administrator','complaints administrator',
-  'patient safety administrator',
-  'project administrator','project support officer','programme support officer',
-  'pmo administrator','project coordinator','transformation administrator',
-  'operational administrator','operations coordinator','service administrator',
-  'directorate administrator','department administrator','divisional administrator',
-  'business support officer','business support administrator','operational support officer',
-  'community administrator','mental health administrator','community team administrator',
-  'corporate administrator','board administrator','committee administrator',
-  'corporate governance administrator','executive office administrator',
-  'senior administrative officer','administration manager','office manager',
-  'business manager','corporate services manager','service manager','general manager',
+  'patient safety administrator','project administrator','project support officer',
+  'programme support officer','pmo administrator','project coordinator',
+  'transformation administrator','operational administrator','operations coordinator',
+  'service administrator','directorate administrator','department administrator',
+  'divisional administrator','business support officer','business support administrator',
+  'operational support officer','community administrator','mental health administrator',
+  'community team administrator','corporate administrator','board administrator',
+  'committee administrator','corporate governance administrator',
+  'executive office administrator','senior administrative officer',
+  'administration manager','office manager','business manager',
+  'corporate services manager','service manager','general manager','operations manager',
   'communications manager','communications officer','communications adviser',
   'communications advisor','senior communications officer','senior communications manager',
   'head of communications','director of communications','media officer','media manager',
@@ -168,7 +182,7 @@ const ADMIN_INC=['administrative assistant','administrator','administration offi
   'community engagement manager','policy officer','policy manager','policy adviser',
   'information governance officer','data protection officer','foi officer',
   'facilities manager','facilities officer','facilities coordinator',
-  'delivery manager','performance manager','quality manager','improvement manager',
+  'delivery manager','performance manager','quality manager',
   'strategy officer','strategy manager','programme officer','programme coordinator'];
 
 const ADMIN_EXC=['nurse','nursing','doctor','consultant','registrar','physician','surgeon',
@@ -188,13 +202,12 @@ const PM_INC=['project support officer','project administrator','project coordin
   'digital programme manager','clinical programme manager','workforce programme manager',
   'strategic programme manager','improvement programme manager','programme delivery manager',
   'pmo officer','pmo analyst','pmo coordinator','pmo manager','senior pmo manager',
-  'portfolio office manager','head of pmo',
-  'change manager','organisational change manager','transformation manager',
-  'service transformation manager','improvement manager','continuous improvement manager',
-  'quality improvement manager','business change manager','transformation lead',
-  'digital transformation manager','informatics project manager','it programme manager',
-  'systems implementation manager','epr implementation manager','digital delivery manager',
-  'technical project manager','data project manager',
+  'portfolio office manager','head of pmo','change manager','organisational change manager',
+  'transformation manager','service transformation manager','improvement manager',
+  'continuous improvement manager','quality improvement manager','business change manager',
+  'transformation lead','digital transformation manager','informatics project manager',
+  'it programme manager','systems implementation manager','epr implementation manager',
+  'digital delivery manager','technical project manager','data project manager',
   'portfolio manager','head of programmes','head of transformation',
   'associate director of programmes','deputy director of programmes',
   'director of transformation','director of programmes'];
@@ -400,7 +413,7 @@ const EST_INC=['estates assistant','estates administrator','estates officer',
   'property assistant','maintenance coordinator','facilities officer',
   'estates manager','assistant estates manager','estates operations manager',
   'estates maintenance manager','building services manager','property manager',
-  'facilities manager','compliance manager estates','contracts manager estates',
+  'facilities manager','compliance manager','contracts manager',
   'engineering manager','hard fm manager','maintenance manager',
   'senior estates manager','head of estates','head of property',
   'estates programme manager','capital projects manager','capital development manager',
@@ -419,33 +432,33 @@ const EST_INC=['estates assistant','estates administrator','estates officer',
 const CATS=[
   {id:'admin-out', label:'Admin Outside London', kw:'administrator',        loc:'',            exLoc:'london', minBand:5, minSalary:32000, group:'Admin',          inc:ADMIN_INC, exc:ADMIN_EXC},
   {id:'admin-lon', label:'Admin in London',       kw:'administrator',        loc:'London',                      minBand:5, minSalary:32000, group:'Admin',          inc:ADMIN_INC, exc:ADMIN_EXC},
-  {id:'sw-lon',    label:'Support Worker in London',       kw:'healthcare assistant', loc:'London',                      group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-out',    label:'Support Worker Outside London',  kw:'healthcare assistant', loc:'',      exLoc:'london', group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-wm',     label:'Support Worker West Midlands',   kw:'healthcare assistant', loc:'West Midlands',           group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-wales',  label:'Support Worker in Wales',        kw:'healthcare assistant', loc:'Wales',                   group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-manc',   label:'Support Worker Manchester',      kw:'healthcare assistant', loc:'Manchester',              group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-wy',     label:'Support Worker W Yorkshire',     kw:'healthcare assistant', loc:'Leeds',                   group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-ey',     label:'Support Worker E Yorkshire',     kw:'healthcare assistant', loc:'Hull',                    group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'nurse',     label:'Staff Nurse',           kw:'staff nurse',          loc:'',            minBand:5, maxBand:5,             group:'Nursing',        inc:NURSE_INC,   exc:NURSE_EXC},
-  {id:'mh-nurse',  label:'Mental Health Nurse',   kw:'mental health nurse',  loc:'',                                               group:'Nursing',        inc:MH_NURSE_INC,exc:MH_NURSE_EXC},
-  {id:'res-nurse', label:'Research Nurse',        kw:'research nurse',       loc:'',                                               group:'Nursing',        inc:RES_NURSE_INC},
-  {id:'fellow',    label:'Clinical Fellow',       kw:'clinical fellow',      loc:'',                                               group:'Clinical',       inc:FELLOW_INC},
-  {id:'coder',     label:'Clinical Coder',        kw:'clinical coder',       loc:'',                                               group:'Clinical',       inc:CODER_INC},
-  {id:'diet',      label:'Dietician',             kw:'dietitian',            loc:'',                                               group:'Clinical',       inc:DIET_INC},
-  {id:'micro',     label:'Microbiology',           kw:'microbiology',         loc:'',                                               group:'Clinical',       inc:MICRO_INC},
-  {id:'phleb',     label:'Phlebotomist Leader',   kw:'phlebotomist',         loc:'',                                               group:'Clinical',       inc:PHLEB_INC},
-  {id:'res-asst',  label:'Research Assistant',    kw:'research assistant',   loc:'',                                               group:'Clinical',       inc:RES_INC,     exc:RES_EXC},
-  {id:'sw3',       label:'Social Worker',          kw:'social worker',        loc:'',                                               group:'Clinical',       inc:SW2_INC,     exc:SW2_EXC},
-  {id:'data',      label:'Data Analyst',           kw:'data analyst',         loc:'',                                               group:'Professional',   inc:DATA_INC,    exc:DATA_EXC},
-  {id:'bi',        label:'BI Analyst',             kw:'business intelligence analyst', loc:'',                                     group:'Professional',   inc:BI_INC},
-  {id:'fin',       label:'Finance',               kw:'finance officer',       loc:'',                                               group:'Professional',   inc:FIN_INC,     exc:FIN_EXC},
-  {id:'hr',        label:'HR',                    kw:'human resources',       loc:'',                                               group:'Professional',   inc:HR_INC,      exc:HR_EXC},
-  {id:'it',        label:'IT / Engineering',      kw:'IT engineer',           loc:'',                                               group:'Professional',   inc:IT_INC,      exc:IT_EXC},
-  {id:'pm',        label:'Project Manager',       kw:'project manager',       loc:'',                                               group:'Professional',   inc:PM_INC,      exc:PM_EXC},
-  {id:'ba',        label:'Business Analyst',      kw:'business analyst',      loc:'',                                               group:'Professional',   inc:BA_INC,      exc:BA_EXC},
-  {id:'log',       label:'Logistics',             kw:'logistics',             loc:'',                                               group:'Professional',   inc:LOG_INC},
-  {id:'coord',     label:'Coordinator',           kw:'pathway coordinator',   loc:'',                                               group:'Professional',   inc:COORD_INC},
-  {id:'est',       label:'Estates',               kw:'estates manager',       loc:'',                                               group:'Professional',   inc:EST_INC},
+  {id:'sw-lon',    label:'Support Worker in London',       kw:'healthcare assistant', loc:'London',             minBand:3, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-out',    label:'Support Worker Outside London',  kw:'healthcare assistant', loc:'', exLoc:'london',  minBand:3, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-wm',     label:'Support Worker West Midlands',   kw:'healthcare assistant', loc:'West Midlands',      minBand:3, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-wales',  label:'Support Worker in Wales',        kw:'healthcare assistant', loc:'Wales',              minBand:3, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-manc',   label:'Support Worker Manchester',      kw:'healthcare assistant', loc:'Manchester',         minBand:3, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-wy',     label:'Support Worker W Yorkshire',     kw:'healthcare assistant', loc:'Leeds',              minBand:3, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'sw-ey',     label:'Support Worker E Yorkshire',     kw:'healthcare assistant', loc:'Hull',               minBand:3, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
+  {id:'nurse',     label:'Staff Nurse',           kw:'staff nurse',          loc:'', minBand:5, maxBand:5,      group:'Nursing',   inc:NURSE_INC,    exc:NURSE_EXC},
+  {id:'mh-nurse',  label:'Mental Health Nurse',   kw:'mental health nurse',  loc:'',                           group:'Nursing',   inc:MH_NURSE_INC, exc:MH_NURSE_EXC},
+  {id:'res-nurse', label:'Research Nurse',        kw:'research nurse',       loc:'',                           group:'Nursing',   inc:RES_NURSE_INC},
+  {id:'fellow',    label:'Clinical Fellow',       kw:'clinical fellow',      loc:'',                           group:'Clinical',  inc:FELLOW_INC},
+  {id:'coder',     label:'Clinical Coder',        kw:'clinical coder',       loc:'',                           group:'Clinical',  inc:CODER_INC},
+  {id:'diet',      label:'Dietician',             kw:'dietitian',            loc:'',                           group:'Clinical',  inc:DIET_INC},
+  {id:'micro',     label:'Microbiology',           kw:'microbiology',         loc:'',                           group:'Clinical',  inc:MICRO_INC},
+  {id:'phleb',     label:'Phlebotomist Leader',   kw:'phlebotomist',         loc:'',                           group:'Clinical',  inc:PHLEB_INC},
+  {id:'res-asst',  label:'Research Assistant',    kw:'research assistant',   loc:'',                           group:'Clinical',  inc:RES_INC,      exc:RES_EXC},
+  {id:'sw3',       label:'Social Worker',          kw:'social worker',        loc:'',                           group:'Clinical',  inc:SW2_INC,      exc:SW2_EXC},
+  {id:'data',      label:'Data Analyst',           kw:'data analyst',         loc:'',                           group:'Professional', inc:DATA_INC, exc:DATA_EXC},
+  {id:'bi',        label:'BI Analyst',             kw:'business intelligence analyst', loc:'',                 group:'Professional', inc:BI_INC},
+  {id:'fin',       label:'Finance',               kw:'finance officer',       loc:'',                           group:'Professional', inc:FIN_INC,  exc:FIN_EXC},
+  {id:'hr',        label:'HR',                    kw:'human resources',       loc:'',                           group:'Professional', inc:HR_INC,   exc:HR_EXC},
+  {id:'it',        label:'IT / Engineering',      kw:'IT engineer',           loc:'',                           group:'Professional', inc:IT_INC,   exc:IT_EXC},
+  {id:'pm',        label:'Project Manager',       kw:'project manager',       loc:'',                           group:'Professional', inc:PM_INC,   exc:PM_EXC},
+  {id:'ba',        label:'Business Analyst',      kw:'business analyst',      loc:'',                           group:'Professional', inc:BA_INC,   exc:BA_EXC},
+  {id:'log',       label:'Logistics',             kw:'logistics',             loc:'',                           group:'Professional', inc:LOG_INC},
+  {id:'coord',     label:'Coordinator',           kw:'pathway coordinator',   loc:'',                           group:'Professional', inc:COORD_INC},
+  {id:'est',       label:'Estates',               kw:'estates manager',       loc:'',                           group:'Professional', inc:EST_INC},
 ];
 
 export default async function handler(req, res) {
@@ -457,59 +470,46 @@ export default async function handler(req, res) {
   const {category, page=1}=req.query;
   const pg=parseInt(page), per=20;
 
-  if(!category || category==='All'){
+  if(!category){
     return res.status(200).json({fetchedAt:new Date().toISOString(),
-      total:0,page:1,pages:0,jobs:[],message:'Select a category'});
+      total:0,page:1,pages:0,jobs:[]});
   }
 
   const cat=CATS.find(c=>c.label===category||c.id===category);
   if(!cat) return res.status(404).json({error:'Unknown category'});
 
-  // Check cache first
   const cacheKey=`${cat.id}-${pg}`;
   const cached=CACHE.get(cacheKey);
-  if(cached && Date.now()-cached.at<TTL){
-    return res.status(200).json(cached.data);
-  }
+  if(cached && Date.now()-cached.at<TTL) return res.status(200).json(cached.data);
 
-  // Fetch pages from NHS Jobs in parallel for speed
-  // nhsPage param lets frontend request next batch
-  const nhsPage = parseInt(req.query.nhsPage||'1');
-  const pageNums = Array.from({length:10}, (_,i) => nhsPage+i); // 10 pages at once
-
-  const pageResults = await Promise.all(
-    pageNums.map(p => fetchPage(cat.kw, cat.loc||'', p, cat.minSalary||0).catch(()=>[]))
-  );
-
+  // Fetch 5 pages from NHS Jobs
   const seen=new Set(), raw=[];
-  let hasMore = false;
-  for(let i=0; i<pageResults.length; i++){
-    const pageJobs = pageResults[i];
+  const startPage=(pg-1)*5+1;
+  for(let p=startPage; p<startPage+5; p++){
+    const pageJobs=await fetchPage(cat.kw, cat.loc||'', p, cat.minSalary||0);
     if(!pageJobs.length) break;
     for(const j of pageJobs){ if(seen.has(j.id)) continue; seen.add(j.id); raw.push(j); }
-    if(i===pageResults.length-1 && pageJobs.length>=8) hasMore=true;
+    if(pageJobs.length<8) break;
   }
 
   const filtered=applyFilter(raw, cat);
 
-    // Sort by date - newest first, no date at the end
+  // Sort by date - newest first, parse NHS date strings properly
   filtered.sort((a,b)=>{
-    if(!a.postedDate && !b.postedDate) return 0;
-    if(!a.postedDate) return 1;  // no date goes to end
-    if(!b.postedDate) return -1; // no date goes to end
-    return new Date(b.postedDate) - new Date(a.postedDate); // newest first
+    const da=parseDate(a.postedDate);
+    const db=parseDate(b.postedDate);
+    if(!da && !db) return 0;
+    if(!da) return 1;
+    if(!db) return -1;
+    return db.localeCompare(da); // newest first
   });
-
-  const nextNhsPage = hasMore ? nhsPage+10 : null;
 
   const data={
     fetchedAt:new Date().toISOString(),
     total:filtered.length,
     page:pg,
-    pages: nextNhsPage ? pg+1 : pg,
-    hasMore: !!nextNhsPage,
-    nextNhsPage,
-    jobs:filtered
+    pages:raw.length>=40 ? pg+1 : pg,
+    jobs:filtered.slice(0,per)
   };
 
   CACHE.set(cacheKey,{at:Date.now(),data});
