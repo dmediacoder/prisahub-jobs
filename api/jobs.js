@@ -472,14 +472,24 @@ export default async function handler(req, res) {
     return res.status(200).json(cached.data);
   }
 
-  // Fetch 5 pages from NHS Jobs (50 raw results, fast enough)
+  // Fetch pages from NHS Jobs in parallel for speed
+  // nhsPage param lets frontend request next batch
+  const nhsPage = parseInt(req.query.nhsPage||'1');
+  const pageNums = Array.from({length:10}, (_,i) => nhsPage+i); // 10 pages at once
+
+  const pageResults = await Promise.all(
+    pageNums.map(p => fetchPage(cat.kw, cat.loc||'', p, cat.minSalary||0).catch(()=>[]))
+  );
+
   const seen=new Set(), raw=[];
-  for(let p=pg; p<pg+5; p++){
-    const pageJobs=await fetchPage(cat.kw, cat.loc||'', p, cat.minSalary||0);
+  let hasMore = false;
+  for(let i=0; i<pageResults.length; i++){
+    const pageJobs = pageResults[i];
     if(!pageJobs.length) break;
     for(const j of pageJobs){ if(seen.has(j.id)) continue; seen.add(j.id); raw.push(j); }
-    if(pageJobs.length < 8) break;
+    if(i===pageResults.length-1 && pageJobs.length>=8) hasMore=true;
   }
+
   const filtered=applyFilter(raw, cat);
 
     // Sort by date - newest first, no date at the end
@@ -490,11 +500,15 @@ export default async function handler(req, res) {
     return new Date(b.postedDate) - new Date(a.postedDate); // newest first
   });
 
+  const nextNhsPage = hasMore ? nhsPage+10 : null;
+
   const data={
     fetchedAt:new Date().toISOString(),
     total:filtered.length,
     page:pg,
-    pages:raw.length>=40 ? pg+1 : pg,
+    pages: nextNhsPage ? pg+1 : pg,
+    hasMore: !!nextNhsPage,
+    nextNhsPage,
     jobs:filtered
   };
 
