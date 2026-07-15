@@ -164,75 +164,26 @@ var CATS=[
   {id:'est',                label:'Estates',                        icon:'🏗️',g:'Professional'},
 ];
 
-var _cat='admin-out',_kw='',_pg=1,_pgs=1,_tot=0,_jobs=[],_tmr=null,_busy=false;
+var _cat='All',_kw='',_pg=1,_pgs=1,_tot=0,_jobs=[],_tmr=null,_busy=false;
 function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
-var _nhsPage=1, _allJobs=[];
-
-async function load(pg, nhsPage, append){
-  if(_busy) return;
-
-  // All Jobs just shows a welcome message - dont fetch
-  if(_cat==='All'){
-    document.getElementById('jlist').innerHTML='<div class="empty"><span class="empty-e">👈</span><h3>Select a category</h3><p>Choose a category from the sidebar to see live NHS job listings.</p></div>';
-    document.getElementById('pgn').innerHTML='';
-    document.getElementById('sn-total').textContent='—';
-    document.getElementById('ptitle').textContent='🏥 All NHS Jobs';
-    document.getElementById('psub').textContent='Select a category from the sidebar to view jobs';
-    document.getElementById('rlabel').innerHTML='';
-    return;
-  }
-
-  _busy=true;
-  _pg=pg||1;
-  if(!append){ _nhsPage=nhsPage||1; _allJobs=[]; skel(); }
-
+async function load(pg){
+  if(_busy) return; _busy=true; _pg=pg||1; skel();
   try{
     var cat=CATS.find(function(c){return c.id===_cat})||CATS[1];
-    var q='/api/jobs?page='+_pg+'&nhsPage='+_nhsPage+'&category='+encodeURIComponent(cat.label);
+    var q='/api/jobs?page='+_pg+'&category='+encodeURIComponent(cat.label);
     if(_kw) q+='&keyword='+encodeURIComponent(_kw);
     var r=await fetch(q); if(!r.ok) throw new Error('HTTP '+r.status);
     var d=await r.json();
-
-    // Merge new jobs avoiding duplicates
-    var ids=new Set(_allJobs.map(function(j){return j.id;}));
-    (d.jobs||[]).forEach(function(j){ if(!ids.has(j.id)){ids.add(j.id);_allJobs.push(j);} });
-
-    _tot=_allJobs.length;
-    _jobs=_allJobs;
+    _jobs=d.jobs||[]; _pgs=d.pages||1; _tot=d.total||0;
     document.getElementById('sn-total').textContent=_tot;
     document.getElementById('sn-upd').textContent=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
-    render(); hdr();
-
-    // If more pages available, load next batch automatically
-    if(d.hasMore && d.nextNhsPage){
-      _nhsPage=d.nextNhsPage;
-      _busy=false;
-      // Show load more button
-      showLoadMore(d.nextNhsPage);
-    } else {
-      _busy=false;
-    }
+    render(); pgn(); hdr();
   }catch(ex){
-    _busy=false;
-    if(_allJobs.length>0){
-      render(); hdr(); // Show what we have
-    } else {
-      document.getElementById('jlist').innerHTML='<div class="empty"><span class="empty-e">⚠️</span><h3>Could not load jobs</h3><p><a href="javascript:void(0)" onclick="_busy=false;load(1)" style="color:#3b82f6">Try again</a></p></div>';
-    }
+    document.getElementById('jlist').innerHTML='<div class="empty"><span class="empty-e">⚠️</span><h3>Could not load jobs</h3><p><a href="javascript:void(0)" onclick="_busy=false;load(1)" style="color:#3b82f6">Try again</a></p></div>';
+    _busy=false; return;
   }
-}
-
-function showLoadMore(nextNhsPage){
-  var pgn=document.getElementById('pgn');
-  pgn.innerHTML='<button class="pg-btn" onclick="loadMore('+nextNhsPage+')" style="background:#3b82f6;color:#fff;border-color:#3b82f6">Load more jobs →</button>'
-    +'<span class="pg-info" style="margin-left:8px">'+_allJobs.length+' loaded so far</span>';
-}
-
-function loadMore(nhsPage){
-  document.getElementById('pgn').innerHTML='<div class="spinner" style="width:24px;height:24px;border-width:2px;margin:0 auto"></div>';
   _busy=false;
-  load(_pg, nhsPage, true);
 }
 
 function hdr(){
@@ -257,7 +208,7 @@ function sidebar(){
     b.addEventListener('click',function(){
       _cat=b.dataset.id;_kw='';_pg=1;
       document.getElementById('s-input').value='';
-      _allJobs=[];sidebar();load(1,1,false);
+      sidebar();load(1);
     });
   });
 }
@@ -307,7 +258,14 @@ function render(){
 }
 
 function pgn(){
-  // Handled by showLoadMore now
+  var el=document.getElementById('pgn');
+  if(_pgs<=1){el.innerHTML='';return;}
+  el.innerHTML='<button class="pg-btn" id="pp" '+(_pg<=1?'disabled':'')+'>← Previous</button>'
+    +'<span class="pg-info">Page '+_pg+' of '+_pgs+'</span>'
+    +'<button class="pg-btn" id="np" '+(_pg>=_pgs?'disabled':'')+'>Next →</button>';
+  var pp=document.getElementById('pp'),np=document.getElementById('np');
+  if(pp) pp.addEventListener('click',function(){load(_pg-1);window.scrollTo(0,0);});
+  if(np) np.addEventListener('click',function(){load(_pg+1);window.scrollTo(0,0);});
 }
 
 function skel(){
@@ -315,12 +273,12 @@ function skel(){
     '<div class="sk-card"><div class="skeleton" style="width:42px;height:42px;border-radius:10px;flex-shrink:0"></div><div style="flex:1"><div class="skeleton" style="width:58%;height:15px;margin-bottom:8px"></div><div class="skeleton" style="width:38%;height:12px;margin-bottom:10px"></div><div class="skeleton" style="width:76%;height:11px"></div></div></div>'.repeat(6);
 }
 
-sidebar(); load(1,1,false);
+sidebar(); load(1);
 document.getElementById('s-input').addEventListener('input',function(){
   clearTimeout(_tmr);
-  _tmr=setTimeout(function(){_kw=document.getElementById('s-input').value.trim();_pg=1;_allJobs=[];load(1,1,false);},400);
+  _tmr=setTimeout(function(){_kw=document.getElementById('s-input').value.trim();_pg=1;load(1);},400);
 });
-setInterval(function(){_allJobs=[];load(1,1,false);},30*60*1000);
+setInterval(function(){load(_pg);},30*60*1000);
 </script>
 </body>
 </html>
