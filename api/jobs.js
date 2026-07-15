@@ -478,40 +478,50 @@ export default async function handler(req, res) {
   const cat=CATS.find(c=>c.label===category||c.id===category);
   if(!cat) return res.status(404).json({error:'Unknown category'});
 
-  const cacheKey=`${cat.id}-${pg}`;
-  const cached=CACHE.get(cacheKey);
-  if(cached && Date.now()-cached.at<TTL) return res.status(200).json(cached.data);
+  // Fetch ALL pages upfront, sort by date, then paginate ourselves
+  // This guarantees page 1 = newest jobs, page 2 = next newest, etc
+  const cacheAllKey=`${cat.id}-all`;
+  let allFiltered=[];
 
-  // Fetch 5 pages from NHS Jobs
-  const seen=new Set(), raw=[];
-  const startPage=(pg-1)*5+1;
-  for(let p=startPage; p<startPage+5; p++){
-    const pageJobs=await fetchPage(cat.kw, cat.loc||'', p, cat.minSalary||0);
-    if(!pageJobs.length) break;
-    for(const j of pageJobs){ if(seen.has(j.id)) continue; seen.add(j.id); raw.push(j); }
-    if(pageJobs.length<8) break;
+  const cachedAll=CACHE.get(cacheAllKey);
+  if(cachedAll && Date.now()-cachedAll.at<TTL){
+    allFiltered=cachedAll.jobs;
+  } else {
+    // Fetch up to 20 NHS pages to collect all available jobs
+    const seen=new Set(), raw=[];
+    for(let p=1; p<=20; p++){
+      const pageJobs=await fetchPage(cat.kw, cat.loc||'', p, cat.minSalary||0);
+      if(!pageJobs.length) break;
+      for(const j of pageJobs){ if(seen.has(j.id)) continue; seen.add(j.id); raw.push(j); }
+      if(pageJobs.length<8) break; // last page
+    }
+
+    allFiltered=applyFilter(raw, cat);
+
+    // Sort ALL jobs by date - newest first
+    allFiltered.sort((a,b)=>{
+      const da=parseDate(a.postedDate);
+      const db=parseDate(b.postedDate);
+      if(!da && !db) return 0;
+      if(!da) return 1;  // no date goes to end
+      if(!db) return -1;
+      return db.localeCompare(da); // newest first
+    });
+
+    CACHE.set(cacheAllKey,{at:Date.now(),jobs:allFiltered});
   }
 
-  const filtered=applyFilter(raw, cat);
-
-  // Sort by date - newest first, parse NHS date strings properly
-  filtered.sort((a,b)=>{
-    const da=parseDate(a.postedDate);
-    const db=parseDate(b.postedDate);
-    if(!da && !db) return 0;
-    if(!da) return 1;
-    if(!db) return -1;
-    return db.localeCompare(da); // newest first
-  });
+  // Now paginate the sorted results ourselves
+  const total=allFiltered.length;
+  const pages=Math.ceil(total/per);
+  const start=(pg-1)*per;
+  const jobs=allFiltered.slice(start, start+per);
 
   const data={
     fetchedAt:new Date().toISOString(),
-    total:filtered.length,
-    page:pg,
-    pages:raw.length>=40 ? pg+1 : pg,
-    jobs:filtered.slice(0,per)
+    total, page:pg, pages,
+    jobs
   };
 
-  CACHE.set(cacheKey,{at:Date.now(),data});
   return res.status(200).json(data);
 }
