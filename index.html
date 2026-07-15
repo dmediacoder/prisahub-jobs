@@ -165,22 +165,37 @@ var CATS=[
 var _cat='admin-out',_kw='',_pg=1,_pgs=1,_tot=0,_jobs=[],_tmr=null,_busy=false;
 function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
-async function load(pg){
-  if(_busy) return; _busy=true; _pg=pg||1; skel();
+var _nhsPage=1, _allJobs=[], _hasMore=false;
+
+async function load(pg, nhsPage, append){
+  if(_busy) return; _busy=true;
+  _pg=pg||1;
+  if(!append){ _nhsPage=nhsPage||1; _allJobs=[]; skel(); }
   try{
-    var cat=CATS.find(function(c){return c.id===_cat})||CATS[1];
-    var q='/api/jobs?page='+_pg+'&category='+encodeURIComponent(cat.label);
+    var cat=CATS.find(function(c){return c.id===_cat})||CATS[0];
+    var q='/api/jobs?page='+_pg+'&nhsPage='+(_nhsPage||1)+'&category='+encodeURIComponent(cat.label);
     if(_kw) q+='&keyword='+encodeURIComponent(_kw);
     var r=await fetch(q); if(!r.ok) throw new Error('HTTP '+r.status);
     var d=await r.json();
-    _jobs=d.jobs||[]; _pgs=d.pages||1; _tot=d.total||0;
+    // Merge jobs avoiding duplicates
+    var ids=new Set(_allJobs.map(function(j){return j.id;}));
+    (d.jobs||[]).forEach(function(j){if(!ids.has(j.id)){ids.add(j.id);_allJobs.push(j);}});
+    _jobs=_allJobs; _tot=_allJobs.length; _hasMore=d.hasMore||false;
+    if(d.nextNhsPage) _nhsPage=d.nextNhsPage;
     document.getElementById('sn-upd').textContent=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
     render(); pgn(); hdr();
   }catch(ex){
-    document.getElementById('jlist').innerHTML='<div class="empty"><span class="empty-e">⚠️</span><h3>Could not load jobs</h3><p><a href="javascript:void(0)" onclick="_busy=false;load(1)" style="color:#3b82f6">Try again</a></p></div>';
-    _busy=false; return;
+    _busy=false;
+    if(_allJobs.length>0){ render(); hdr(); }
+    else document.getElementById('jlist').innerHTML='<div class="empty"><span class="empty-e">⚠️</span><h3>Could not load jobs</h3><p><a href="javascript:void(0)" onclick="_busy=false;load(1,1,false)" style="color:#3b82f6">Try again</a></p></div>';
+    return;
   }
   _busy=false;
+}
+
+function loadMore(){
+  _busy=false;
+  load(_pg, _nhsPage, true);
 }
 
 function hdr(){
@@ -205,7 +220,7 @@ function sidebar(){
     b.addEventListener('click',function(){
       _cat=b.dataset.id;_kw='';_pg=1;
       document.getElementById('s-input').value='';
-      sidebar();load(1);
+      _allJobs=[];_nhsPage=1;sidebar();load(1,1,false);
     });
   });
 }
@@ -256,13 +271,12 @@ function render(){
 
 function pgn(){
   var el=document.getElementById('pgn');
-  if(_pgs<=1){el.innerHTML='';return;}
-  el.innerHTML='<button class="pg-btn" id="pp" '+(_pg<=1?'disabled':'')+'>← Previous</button>'
-    +'<span class="pg-info">Page '+_pg+' of '+_pgs+'</span>'
-    +'<button class="pg-btn" id="np" '+(_pg>=_pgs?'disabled':'')+'>Next →</button>';
-  var pp=document.getElementById('pp'),np=document.getElementById('np');
-  if(pp) pp.addEventListener('click',function(){load(_pg-1);window.scrollTo(0,0);});
-  if(np) np.addEventListener('click',function(){load(_pg+1);window.scrollTo(0,0);});
+  if(_hasMore){
+    el.innerHTML='<button class="pg-btn" onclick="loadMore()" style="background:#3b82f6;color:#fff;border-color:#3b82f6;padding:10px 24px;font-size:13px">Load more jobs →</button>'
+      +'<span class="pg-info" style="margin-left:10px">'+_allJobs.length+' jobs loaded</span>';
+  } else {
+    el.innerHTML=_allJobs.length>0?'<span class="pg-info">All '+_allJobs.length+' jobs loaded</span>':'';
+  }
 }
 
 function skel(){
@@ -273,9 +287,9 @@ function skel(){
 sidebar(); load(1);
 document.getElementById('s-input').addEventListener('input',function(){
   clearTimeout(_tmr);
-  _tmr=setTimeout(function(){_kw=document.getElementById('s-input').value.trim();_pg=1;load(1);},400);
+  _tmr=setTimeout(function(){_kw=document.getElementById('s-input').value.trim();_allJobs=[];_nhsPage=1;_pg=1;load(1,1,false);},400);
 });
-setInterval(function(){load(_pg);},30*60*1000);
+setInterval(function(){_allJobs=[];_nhsPage=1;load(1,1,false);},30*60*1000);
 </script>
 </body>
 </html>
