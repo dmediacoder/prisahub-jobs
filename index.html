@@ -170,7 +170,20 @@ function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').re
 var _nhsPage=1, _allJobs=[];
 
 async function load(pg, nhsPage, append){
-  if(_busy) return; _busy=true;
+  if(_busy) return;
+
+  // All Jobs just shows a welcome message - dont fetch
+  if(_cat==='All'){
+    document.getElementById('jlist').innerHTML='<div class="empty"><span class="empty-e">👈</span><h3>Select a category</h3><p>Choose a category from the sidebar to see live NHS job listings.</p></div>';
+    document.getElementById('pgn').innerHTML='';
+    document.getElementById('sn-total').textContent='—';
+    document.getElementById('ptitle').textContent='🏥 All NHS Jobs';
+    document.getElementById('psub').textContent='Select a category from the sidebar to view jobs';
+    document.getElementById('rlabel').innerHTML='';
+    return;
+  }
+
+  _busy=true;
   _pg=pg||1;
   if(!append){ _nhsPage=nhsPage||1; _allJobs=[]; skel(); }
 
