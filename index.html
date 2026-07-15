@@ -164,14 +164,14 @@ var CATS=[
   {id:'est',                label:'Estates',                        icon:'🏗️',g:'Professional'},
 ];
 
-var _cat='All',_kw='',_pg=1,_pgs=1,_tot=0,_jobs=[],_tmr=null,_busy=false;
+var _cat='admin-out',_kw='',_pg=1,_pgs=1,_tot=0,_jobs=[],_tmr=null,_busy=false;
 function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
 async function load(pg){
   if(_busy) return; _busy=true; _pg=pg||1; skel();
   try{
-    var q='/api/jobs?page='+_pg;
-    if(_cat!=='All') q+='&category='+encodeURIComponent(CATS.find(function(c){return c.id===_cat}).label);
+    var cat=CATS.find(function(c){return c.id===_cat})||CATS[1];
+    var q='/api/jobs?page='+_pg+'&category='+encodeURIComponent(cat.label);
     if(_kw) q+='&keyword='+encodeURIComponent(_kw);
     var r=await fetch(q); if(!r.ok) throw new Error('HTTP '+r.status);
     var d=await r.json();
@@ -187,7 +187,7 @@ async function load(pg){
 }
 
 function hdr(){
-  var c=CATS.find(function(x){return x.id===_cat})||CATS[0];
+  var c=CATS.find(function(x){return x.id===_cat})||CATS[1];
   document.getElementById('ptitle').textContent=c.icon+' '+c.label;
   document.getElementById('psub').textContent=_tot+' permanent NHS '+(_tot===1?'vacancy':'vacancies')+(_kw?' matching "'+_kw+'"':'');
   document.getElementById('rlabel').innerHTML=_tot>0?'Showing <strong>'+_jobs.length+'</strong> of <strong>'+_tot+'</strong> jobs':'';
