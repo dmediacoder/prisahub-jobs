@@ -482,6 +482,14 @@ export default async function handler(req, res) {
   }
   const filtered=applyFilter(raw, cat);
 
+    // Sort by date - newest first, no date at the end
+  filtered.sort((a,b)=>{
+    if(!a.postedDate && !b.postedDate) return 0;
+    if(!a.postedDate) return 1;  // no date goes to end
+    if(!b.postedDate) return -1; // no date goes to end
+    return new Date(b.postedDate) - new Date(a.postedDate); // newest first
+  });
+
   const data={
     fetchedAt:new Date().toISOString(),
     total:filtered.length,
