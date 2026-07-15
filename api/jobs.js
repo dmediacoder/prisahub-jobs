@@ -65,21 +65,12 @@ function isNhsOrg(org) {
          o.includes('primary care')||o.includes('foundation');
 }
 
-// Check if title matches using word boundary - more precise than simple includes
-function titleMatches(title, term) {
-  // Escape special regex chars in term
-  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Match as whole phrase (word boundary at start and end)
-  const re = new RegExp('(^|[\\s,\\-\/\\(])' + escaped + '([\\s,\\-\/\\(\\)]|$)', 'i');
-  return re.test(title);
-}
-
 function applyFilter(jobs, cat) {
   return jobs.filter(j=>{
     const tl = j.title.toLowerCase().trim();
     const ct = (j.contractType||'').toLowerCase();
     const wp = (j.workingPattern||'').toLowerCase();
-    const sal = (j.salary||'').toLowerCase();
+    const sal = (j.salary||'');
 
     // 1. Must be NHS organisation
     if(!isNhsOrg(j.organisation)) return false;
@@ -88,7 +79,7 @@ function applyFilter(jobs, cat) {
     if(ct && !ct.includes('permanent')) return false;
 
     // 3. No bank/locum/fixed term/temporary
-    if(/\b(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)\b/.test(tl+' '+ct)) return false;
+    if(/(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)/.test(tl+' '+ct)) return false;
 
     // 4. No part time
     if(wp.includes('part time')||wp.includes('part-time')) return false;
@@ -101,35 +92,23 @@ function applyFilter(jobs, cat) {
     if(cat.minBand && j.band!==undefined && j.band<cat.minBand) return false;
     if(cat.maxBand && j.band!==undefined && j.band>cat.maxBand) return false;
 
-    // 7. Min salary filter
-    if(cat.minSalary && cat.minSalary>0) {
-      // Extract salary number from salary string e.g. "£24,071 to £25,674"
-      const salMatch = sal.match(/£([\d,]+)/);
-      if(salMatch) {
-        const salNum = parseInt(salMatch[1].replace(/,/g,''));
-        if(salNum < cat.minSalary) return false;
-      }
+    // 7. Min salary - extract first £ figure from salary string
+    if(cat.minSalary && cat.minSalary>0 && sal) {
+      const sm = sal.replace(/,/g,'').match(/£(\d+)/);
+      if(sm && parseInt(sm[1]) < cat.minSalary) return false;
     }
 
     // 8. Exclude location
     if(cat.exLoc && j.location.toLowerCase().includes(cat.exLoc.toLowerCase())) return false;
 
-    // 9. STRICT EXCLUSIONS - reject if title contains any excluded term as a word/phrase
+    // 9. EXCLUSIONS FIRST - reject if title contains any excluded term
     if(cat.exc?.length) {
-      for(const ex of cat.exc) {
-        if(tl.includes(ex.toLowerCase())) return false;
-      }
+      if(cat.exc.some(ex => tl.includes(ex.toLowerCase()))) return false;
     }
 
-    // 10. STRICT INCLUSIONS - title must match at least one inc term as a proper phrase
+    // 10. INCLUSIONS - title must contain at least one inc term
     if(cat.inc?.length) {
-      const matched = cat.inc.some(inc => {
-        const incL = inc.toLowerCase();
-        // Check if title contains this term as a meaningful part
-        // Use word boundary matching to avoid "healthcare scientist" matching "healthcare assistant"
-        return titleMatches(tl, incL);
-      });
-      if(!matched) return false;
+      if(!cat.inc.some(inc => tl.includes(inc.toLowerCase()))) return false;
     }
 
     return true;
