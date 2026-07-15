@@ -15,7 +15,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
 .sb-icon{width:38px;height:38px;background:linear-gradient(135deg,#3b82f6,#6366f1);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:19px;flex-shrink:0}
 .sb-name{font-size:16px;font-weight:800;color:#fff;letter-spacing:-.3px}
 .sb-name span{color:#93c5fd}
-.sb-sub{font-size:10px;color:rgba(255,255,255,.35);margin-top:1px;letter-spacing:.03em}
+.sb-sub{font-size:10px;color:rgba(255,255,255,.35);margin-top:1px}
 .live-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.22);padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;color:#4ade80}
 .live-dot{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:blink 2s infinite;flex-shrink:0}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
@@ -28,8 +28,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
 .cat-btn.active{background:rgba(59,130,246,.16);color:#fff;font-weight:700;border-left-color:#3b82f6}
 .cat-icon{font-size:14px;width:20px;text-align:center;flex-shrink:0}
 .cat-label{flex:1;line-height:1.35}
-.cat-count{font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.45);min-width:22px;text-align:center;flex-shrink:0}
-.cat-btn.active .cat-count{background:rgba(59,130,246,.3);color:#93c5fd}
 .main{margin-left:265px;flex:1;display:flex;flex-direction:column;min-height:100vh}
 .top-bar{background:#fff;border-bottom:1px solid #e2e8f0;padding:16px 28px;position:sticky;top:0;z-index:50;box-shadow:0 1px 3px rgba(0,0,0,.04)}
 .top-bar-row{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
@@ -50,8 +48,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
 .filter-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px}
 .res-label{font-size:13px;color:#64748b;font-weight:500}
 .res-label strong{color:#0f172a}
-.job-list{display:flex;flex-direction:column;gap:9px}
-.job-card{background:#fff;border:1.5px solid #e8eef8;border-radius:14px;padding:15px 18px;display:flex;align-items:flex-start;gap:13px;transition:all .17s;position:relative;overflow:hidden}
+.job-card{background:#fff;border:1.5px solid #e8eef8;border-radius:14px;padding:15px 18px;display:flex;align-items:flex-start;gap:13px;transition:all .17s;position:relative;overflow:hidden;margin-bottom:9px}
 .job-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#3b82f6,#6366f1);opacity:0;transition:opacity .17s;border-radius:14px 0 0 14px}
 .job-card:hover{border-color:#bfdbfe;box-shadow:0 4px 18px rgba(59,130,246,.08);transform:translateY(-1px)}
 .job-card:hover::before{opacity:1}
@@ -66,7 +63,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
 .t-salary{background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
 .t-perm{background:#faf5ff;color:#6d28d9;border:1px solid #e9d5ff}
 .t-close{background:#fff7ed;color:#c2410c;border:1px solid #fed7aa}
-.t-cat{background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd}
 .job-actions{display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex-shrink:0}
 .cp-btn{width:32px;height:32px;border:1.5px solid #e2e8f0;border-radius:8px;background:#f8fafc;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#94a3b8;transition:all .15s;font-size:13px}
 .cp-btn:hover{border-color:#3b82f6;color:#3b82f6;background:#eff6ff}
@@ -111,13 +107,13 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
 <main class="main">
   <div class="top-bar">
     <div class="top-bar-row">
-      <div><div class="page-title" id="ptitle">🏥 All NHS Jobs</div><div class="page-sub" id="psub">Live permanent NHS vacancies</div></div>
+      <div><div class="page-title" id="ptitle">🏥 NHS Jobs</div><div class="page-sub" id="psub">Live permanent NHS vacancies</div></div>
       <div class="search-wrap"><span class="s-icon">🔍</span><input class="s-input" id="s-input" placeholder="Search job title, location..."/></div>
     </div>
   </div>
   <div class="stats-strip">
     <div class="stat"><div class="stat-n" style="color:#6d28d9">100%</div><div class="stat-l">Permanent</div></div>
-    <div class="stat"><div class="stat-n" style="color:#059669">30</div><div class="stat-l">Categories</div></div>
+    <div class="stat"><div class="stat-n" style="color:#059669">29</div><div class="stat-l">Categories</div></div>
     <div class="stat"><div class="stat-n" id="sn-upd" style="color:#f59e0b;font-size:11px">Live</div><div class="stat-l">Updated</div></div>
   </div>
   <div class="content">
@@ -129,77 +125,60 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
 </div>
 <script>
 var CATS=[
-  {id:'admin-out',          label:'Admin Outside London',           icon:'📋',g:'Admin'},
-  {id:'admin-lon',          label:'Admin in London',                icon:'📋',g:'Admin'},
-  {id:'sw-lon',             label:'Support Worker in London',       icon:'🤝',g:'Support Worker'},
-  {id:'sw-out',             label:'Support Worker Outside London',  icon:'🤝',g:'Support Worker'},
-  {id:'sw-wm',              label:'Support Worker West Midlands',   icon:'🤝',g:'Support Worker'},
-  {id:'sw-wales',           label:'Support Worker in Wales',        icon:'🤝',g:'Support Worker'},
-  {id:'sw-manc',            label:'Support Worker Manchester',      icon:'🤝',g:'Support Worker'},
-  {id:'sw-wy',              label:'Support Worker W Yorkshire',     icon:'🤝',g:'Support Worker'},
-  {id:'sw-ey',              label:'Support Worker E Yorkshire',     icon:'🤝',g:'Support Worker'},
-  {id:'nurse',              label:'Staff Nurse',                    icon:'👩‍⚕️',g:'Nursing'},
-  {id:'mh-nurse',           label:'Mental Health Nurse',            icon:'🧠',g:'Nursing'},
-  {id:'res-nurse',          label:'Research Nurse',                 icon:'🔭',g:'Nursing'},
-  {id:'fellow',             label:'Clinical Fellow',                icon:'🩺',g:'Clinical'},
-  {id:'coder',              label:'Clinical Coder',                 icon:'🏷️',g:'Clinical'},
-  {id:'diet',               label:'Dietician',                      icon:'🥗',g:'Clinical'},
-  {id:'micro',              label:'Microbiology',                   icon:'🔬',g:'Clinical'},
-  {id:'phleb',              label:'Phlebotomist Leader',            icon:'💉',g:'Clinical'},
-  {id:'res-asst',           label:'Research Assistant',             icon:'📊',g:'Clinical'},
-  {id:'sw3',                label:'Social Worker',                  icon:'🫂',g:'Clinical'},
-  {id:'data',               label:'Data Analyst',                   icon:'📈',g:'Professional'},
-  {id:'bi',                 label:'BI Analyst',                     icon:'🧩',g:'Professional'},
-  {id:'fa',                 label:'Financial Analyst',              icon:'💹',g:'Professional'},
-  {id:'desk',               label:'Desk Analyst',                   icon:'💻',g:'Professional'},
-  {id:'fin',                label:'Finance',                        icon:'💰',g:'Professional'},
-  {id:'hr',                 label:'HR',                             icon:'👥',g:'Professional'},
-  {id:'it',                 label:'IT / Engineering',               icon:'⚙️',g:'Professional'},
-  {id:'pm',                 label:'Project Manager',                icon:'📌',g:'Professional'},
-  {id:'ba',                 label:'Business Analyst',               icon:'📉',g:'Professional'},
-  {id:'log',                label:'Logistics',                      icon:'🚚',g:'Professional'},
-  {id:'coord',              label:'Coordinator',                    icon:'🗂️',g:'Professional'},
-  {id:'est',                label:'Estates',                        icon:'🏗️',g:'Professional'},
+  {id:'admin-out', label:'Admin Outside London',           icon:'📋',g:'Admin'},
+  {id:'admin-lon', label:'Admin in London',                icon:'📋',g:'Admin'},
+  {id:'sw-lon',    label:'Support Worker in London',       icon:'🤝',g:'Support Worker'},
+  {id:'sw-out',    label:'Support Worker Outside London',  icon:'🤝',g:'Support Worker'},
+  {id:'sw-wm',     label:'Support Worker West Midlands',   icon:'🤝',g:'Support Worker'},
+  {id:'sw-wales',  label:'Support Worker in Wales',        icon:'🤝',g:'Support Worker'},
+  {id:'sw-manc',   label:'Support Worker Manchester',      icon:'🤝',g:'Support Worker'},
+  {id:'sw-wy',     label:'Support Worker W Yorkshire',     icon:'🤝',g:'Support Worker'},
+  {id:'sw-ey',     label:'Support Worker E Yorkshire',     icon:'🤝',g:'Support Worker'},
+  {id:'nurse',     label:'Staff Nurse',                    icon:'👩‍⚕️',g:'Nursing'},
+  {id:'mh-nurse',  label:'Mental Health Nurse',            icon:'🧠',g:'Nursing'},
+  {id:'res-nurse', label:'Research Nurse',                 icon:'🔭',g:'Nursing'},
+  {id:'fellow',    label:'Clinical Fellow',                icon:'🩺',g:'Clinical'},
+  {id:'coder',     label:'Clinical Coder',                 icon:'🏷️',g:'Clinical'},
+  {id:'diet',      label:'Dietician',                      icon:'🥗',g:'Clinical'},
+  {id:'micro',     label:'Microbiology',                   icon:'🔬',g:'Clinical'},
+  {id:'phleb',     label:'Phlebotomist Leader',            icon:'💉',g:'Clinical'},
+  {id:'res-asst',  label:'Research Assistant',             icon:'📊',g:'Clinical'},
+  {id:'sw3',       label:'Social Worker',                  icon:'🫂',g:'Clinical'},
+  {id:'data',      label:'Data Analyst',                   icon:'📈',g:'Professional'},
+  {id:'bi',        label:'BI Analyst',                     icon:'🧩',g:'Professional'},
+  {id:'fin',       label:'Finance',                        icon:'💰',g:'Professional'},
+  {id:'hr',        label:'HR',                             icon:'👥',g:'Professional'},
+  {id:'it',        label:'IT / Engineering',               icon:'⚙️',g:'Professional'},
+  {id:'pm',        label:'Project Manager',                icon:'📌',g:'Professional'},
+  {id:'ba',        label:'Business Analyst',               icon:'📉',g:'Professional'},
+  {id:'log',       label:'Logistics',                      icon:'🚚',g:'Professional'},
+  {id:'coord',     label:'Coordinator',                    icon:'🗂️',g:'Professional'},
+  {id:'est',       label:'Estates',                        icon:'🏗️',g:'Professional'},
 ];
 
 var _cat='admin-out',_kw='',_pg=1,_pgs=1,_tot=0,_jobs=[],_tmr=null,_busy=false;
 function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
-var _nhsPage=1, _allJobs=[], _hasMore=false;
-
-async function load(pg, nhsPage, append){
-  if(_busy) return; _busy=true;
-  _pg=pg||1;
-  if(!append){ _nhsPage=nhsPage||1; _allJobs=[]; skel(); }
+async function load(pg){
+  if(_busy) return; _busy=true; _pg=pg||1; skel();
   try{
     var cat=CATS.find(function(c){return c.id===_cat})||CATS[0];
-    var q='/api/jobs?page='+_pg+'&nhsPage='+(_nhsPage||1)+'&category='+encodeURIComponent(cat.label);
+    var q='/api/jobs?page='+_pg+'&category='+encodeURIComponent(cat.label);
     if(_kw) q+='&keyword='+encodeURIComponent(_kw);
     var r=await fetch(q); if(!r.ok) throw new Error('HTTP '+r.status);
     var d=await r.json();
-    // Merge jobs avoiding duplicates
-    var ids=new Set(_allJobs.map(function(j){return j.id;}));
-    (d.jobs||[]).forEach(function(j){if(!ids.has(j.id)){ids.add(j.id);_allJobs.push(j);}});
-    _jobs=_allJobs; _tot=_allJobs.length; _hasMore=d.hasMore||false;
-    if(d.nextNhsPage) _nhsPage=d.nextNhsPage;
+    _jobs=d.jobs||[]; _pgs=d.pages||1; _tot=d.total||0;
     document.getElementById('sn-upd').textContent=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
     render(); pgn(); hdr();
   }catch(ex){
-    _busy=false;
-    if(_allJobs.length>0){ render(); hdr(); }
-    else document.getElementById('jlist').innerHTML='<div class="empty"><span class="empty-e">⚠️</span><h3>Could not load jobs</h3><p><a href="javascript:void(0)" onclick="_busy=false;load(1,1,false)" style="color:#3b82f6">Try again</a></p></div>';
-    return;
+    document.getElementById('jlist').innerHTML='<div class="empty"><span class="empty-e">⚠️</span><h3>Could not load jobs</h3><p><a href="javascript:void(0)" onclick="_busy=false;load(1)" style="color:#3b82f6">Try again</a></p></div>';
+    _busy=false; return;
   }
   _busy=false;
 }
 
-function loadMore(){
-  _busy=false;
-  load(_pg, _nhsPage, true);
-}
-
 function hdr(){
-  var c=CATS.find(function(x){return x.id===_cat})||CATS[1];
+  var c=CATS.find(function(x){return x.id===_cat})||CATS[0];
   document.getElementById('ptitle').textContent=c.icon+' '+c.label;
   document.getElementById('psub').textContent=_tot+' permanent NHS '+(_tot===1?'vacancy':'vacancies')+(_kw?' matching "'+_kw+'"':'');
   document.getElementById('rlabel').innerHTML=_tot>0?'Showing <strong>'+_jobs.length+'</strong> of <strong>'+_tot+'</strong> jobs':'';
@@ -208,11 +187,10 @@ function hdr(){
 function sidebar(){
   var el=document.getElementById('cat-list'),h='',lg=null;
   CATS.forEach(function(c){
-    if(c.g!==lg){if(c.g) h+='<div class="grp-label">'+c.g+'</div>'; lg=c.g;}
+    if(c.g!==lg){if(c.g)h+='<div class="grp-label">'+c.g+'</div>';lg=c.g;}
     h+='<button class="cat-btn'+(c.id===_cat?' active':'')+'" data-id="'+e(c.id)+'">'
       +'<span class="cat-icon">'+c.icon+'</span>'
       +'<span class="cat-label">'+e(c.label)+'</span>'
-      +'<span class="cat-count">—</span>'
       +'</button>';
   });
   el.innerHTML=h;
@@ -220,28 +198,24 @@ function sidebar(){
     b.addEventListener('click',function(){
       _cat=b.dataset.id;_kw='';_pg=1;
       document.getElementById('s-input').value='';
-      _allJobs=[];_nhsPage=1;sidebar();load(1,1,false);
+      sidebar();load(1);
     });
   });
 }
 
 var EM=['🏥','🏨','🏛','🔬','💊','🩺','🧬','💉','🧪','🫀','🫁','🩻','🧠','🦷','🏃','⚕️','🎓','📋','🔭','🏋️'];
-
 function render(){
   var el=document.getElementById('jlist');
   if(!_jobs.length){
-    el.innerHTML='<div class="empty"><span class="empty-e">🔍</span><h3>No vacancies right now</h3><p>'
-      +(_kw?'No results for "'+e(_kw)+'". Try a different search.':'No permanent jobs in this category right now. Check back soon — new jobs are posted daily.')
-      +'</p></div>';
+    el.innerHTML='<div class="empty"><span class="empty-e">🔍</span><h3>No vacancies right now</h3><p>No permanent jobs in this category right now. Check back soon — new jobs are posted daily.</p></div>';
     return;
   }
   el.innerHTML=_jobs.map(function(j,i){
     var tgs='';
-    if(j.band)          tgs+='<span class="tag t-band">Band '+e(String(j.band))+'</span>';
-    if(j.salary)        tgs+='<span class="tag t-salary">'+e(j.salary)+'</span>';
-    if(j.contractType)  tgs+='<span class="tag t-perm">'+e(j.contractType)+'</span>';
-    if(j.closingDate)   tgs+='<span class="tag t-close">Closes '+e(j.closingDate)+'</span>';
-    if(j.category&&_cat==='All') tgs+='<span class="tag t-cat">'+e(j.category)+'</span>';
+    if(j.band)         tgs+='<span class="tag t-band">Band '+e(String(j.band))+'</span>';
+    if(j.salary)       tgs+='<span class="tag t-salary">'+e(j.salary)+'</span>';
+    if(j.contractType) tgs+='<span class="tag t-perm">'+e(j.contractType)+'</span>';
+    if(j.closingDate)  tgs+='<span class="tag t-close">Closes '+e(j.closingDate)+'</span>';
     return '<div class="job-card">'
       +'<div class="job-logo">'+EM[i%EM.length]+'</div>'
       +'<div class="job-body">'
@@ -271,12 +245,13 @@ function render(){
 
 function pgn(){
   var el=document.getElementById('pgn');
-  if(_hasMore){
-    el.innerHTML='<button class="pg-btn" onclick="loadMore()" style="background:#3b82f6;color:#fff;border-color:#3b82f6;padding:10px 24px;font-size:13px">Load more jobs →</button>'
-      +'<span class="pg-info" style="margin-left:10px">'+_allJobs.length+' jobs loaded</span>';
-  } else {
-    el.innerHTML=_allJobs.length>0?'<span class="pg-info">All '+_allJobs.length+' jobs loaded</span>':'';
-  }
+  if(_pgs<=1){el.innerHTML='';return;}
+  el.innerHTML='<button class="pg-btn" id="pp" '+(_pg<=1?'disabled':'')+'>← Previous</button>'
+    +'<span class="pg-info">Page '+_pg+' of '+_pgs+'</span>'
+    +'<button class="pg-btn" id="np" '+(_pg>=_pgs?'disabled':'')+'>Next →</button>';
+  var pp=document.getElementById('pp'),np=document.getElementById('np');
+  if(pp) pp.addEventListener('click',function(){load(_pg-1);window.scrollTo(0,0);});
+  if(np) np.addEventListener('click',function(){load(_pg+1);window.scrollTo(0,0);});
 }
 
 function skel(){
@@ -287,9 +262,9 @@ function skel(){
 sidebar(); load(1);
 document.getElementById('s-input').addEventListener('input',function(){
   clearTimeout(_tmr);
-  _tmr=setTimeout(function(){_kw=document.getElementById('s-input').value.trim();_allJobs=[];_nhsPage=1;_pg=1;load(1,1,false);},400);
+  _tmr=setTimeout(function(){_kw=document.getElementById('s-input').value.trim();_pg=1;load(1);},400);
 });
-setInterval(function(){_allJobs=[];_nhsPage=1;load(1,1,false);},30*60*1000);
+setInterval(function(){load(_pg);},30*60*1000);
 </script>
 </body>
 </html>
