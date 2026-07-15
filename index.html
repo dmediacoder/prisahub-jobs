@@ -129,7 +129,6 @@ body{font-family:'Inter',system-ui,sans-serif;background:#f0f4ff;color:#0f172a;f
 </div>
 <script>
 var CATS=[
-  {id:'All',                label:'All Jobs',                       icon:'🏥',g:null},
   {id:'admin-out',          label:'Admin Outside London',           icon:'📋',g:'Admin'},
   {id:'admin-lon',          label:'Admin in London',                icon:'📋',g:'Admin'},
   {id:'sw-lon',             label:'Support Worker in London',       icon:'🤝',g:'Support Worker'},
@@ -163,7 +162,7 @@ var CATS=[
   {id:'est',                label:'Estates',                        icon:'🏗️',g:'Professional'},
 ];
 
-var _cat='All',_kw='',_pg=1,_pgs=1,_tot=0,_jobs=[],_tmr=null,_busy=false;
+var _cat='admin-out',_kw='',_pg=1,_pgs=1,_tot=0,_jobs=[],_tmr=null,_busy=false;
 function e(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 
 async function load(pg){
