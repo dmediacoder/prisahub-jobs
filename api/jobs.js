@@ -65,24 +65,73 @@ function isNhsOrg(org) {
          o.includes('primary care')||o.includes('foundation');
 }
 
+// Check if title matches using word boundary - more precise than simple includes
+function titleMatches(title, term) {
+  // Escape special regex chars in term
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Match as whole phrase (word boundary at start and end)
+  const re = new RegExp('(^|[\\s,\\-\/\\(])' + escaped + '([\\s,\\-\/\\(\\)]|$)', 'i');
+  return re.test(title);
+}
+
 function applyFilter(jobs, cat) {
   return jobs.filter(j=>{
-    const tl=j.title.toLowerCase().trim();
-    const ct=(j.contractType||'').toLowerCase();
-    const wp=(j.workingPattern||'').toLowerCase();
+    const tl = j.title.toLowerCase().trim();
+    const ct = (j.contractType||'').toLowerCase();
+    const wp = (j.workingPattern||'').toLowerCase();
+    const sal = (j.salary||'').toLowerCase();
+
+    // 1. Must be NHS organisation
     if(!isNhsOrg(j.organisation)) return false;
+
+    // 2. Permanent only
     if(ct && !ct.includes('permanent')) return false;
+
+    // 3. No bank/locum/fixed term/temporary
     if(/\b(bank|fixed[\-\s]?term|locum|secondment|temporary|agency)\b/.test(tl+' '+ct)) return false;
+
+    // 4. No part time
     if(wp.includes('part time')||wp.includes('part-time')) return false;
     if(tl.includes('part time')||tl.includes('part-time')) return false;
+
+    // 5. Band 2 and below - always reject
     if(j.band!==undefined && j.band<=2) return false;
+
+    // 6. Category min/max band
     if(cat.minBand && j.band!==undefined && j.band<cat.minBand) return false;
     if(cat.maxBand && j.band!==undefined && j.band>cat.maxBand) return false;
+
+    // 7. Min salary filter
+    if(cat.minSalary && cat.minSalary>0) {
+      // Extract salary number from salary string e.g. "£24,071 to £25,674"
+      const salMatch = sal.match(/£([\d,]+)/);
+      if(salMatch) {
+        const salNum = parseInt(salMatch[1].replace(/,/g,''));
+        if(salNum < cat.minSalary) return false;
+      }
+    }
+
+    // 8. Exclude location
     if(cat.exLoc && j.location.toLowerCase().includes(cat.exLoc.toLowerCase())) return false;
-    // Check EXCLUDES first - if any exc word appears in title, reject immediately
-    if(cat.exc?.some(w=>tl.includes(w.toLowerCase()))) return false;
-    // Then check INCLUDES - title must contain at least one inc term
-    if(cat.inc?.length && !cat.inc.some(w=>tl.includes(w.toLowerCase()))) return false;
+
+    // 9. STRICT EXCLUSIONS - reject if title contains any excluded term as a word/phrase
+    if(cat.exc?.length) {
+      for(const ex of cat.exc) {
+        if(tl.includes(ex.toLowerCase())) return false;
+      }
+    }
+
+    // 10. STRICT INCLUSIONS - title must match at least one inc term as a proper phrase
+    if(cat.inc?.length) {
+      const matched = cat.inc.some(inc => {
+        const incL = inc.toLowerCase();
+        // Check if title contains this term as a meaningful part
+        // Use word boundary matching to avoid "healthcare scientist" matching "healthcare assistant"
+        return titleMatches(tl, incL);
+      });
+      if(!matched) return false;
+    }
+
     return true;
   });
 }
@@ -109,39 +158,52 @@ async function getJobs(cat) {
 
 // ── PRECISE TITLE LISTS PER CATEGORY ─────────────────────────
 
-// SUPPORT WORKER - all variants, NO nurse/doctor/therapist titles
+// SUPPORT WORKER - EXACT title matching only
+// These are the ONLY job titles accepted - no scientist, no technician, no physiologist
 const SW_INC = [
-  'healthcare support worker','hcsw','healthcare assistant','hca',
-  'clinical support worker','nursing assistant','senior healthcare support worker',
-  'ward support worker','patient support worker','patient care assistant',
-  'assistant practitioner','therapy support worker',
+  // General Healthcare Support
+  'healthcare support worker','healthcare assistant','health care assistant',
+  'hcsw','hca','clinical support worker','nursing assistant',
+  'senior healthcare support worker','ward support worker',
+  'patient support worker','patient care assistant',
+  'assistant practitioner',
+  // Therapy Support (support roles only - not qualified therapists)
+  'therapy support worker','occupational therapy assistant',
+  'occupational therapy support worker','physiotherapy assistant',
+  'physiotherapy support worker','speech and language therapy assistant',
+  'speech therapy assistant','therapy assistant','rehabilitation assistant',
+  'rehabilitation support worker','rehab therapy assistant',
+  // Mental Health Support
   'mental health support worker','mental health healthcare assistant',
+  'mental health health care assistant',
   'psychiatric support worker','psychiatric nursing assistant',
   'mental health clinical support worker','picu support worker',
   'crisis support worker','dementia support worker',
   'older adult mental health support worker','forensic mental health support worker',
+  // Learning Disability & Autism
   'learning disability support worker','learning disability healthcare assistant',
   'autism support worker','positive behaviour support worker',
   'behaviour support worker','intensive support worker',
+  // Community Support
   'community healthcare support worker','community support worker',
   'community rehabilitation support worker','district nursing support worker',
   'community mental health support worker','community falls support worker',
   'community hiv support worker','community health and wellbeing worker',
-  'rehabilitation support worker','rehab therapy assistant',
-  'occupational therapy assistant','occupational therapy support worker',
-  'physiotherapy assistant','physiotherapy support worker',
-  'speech and language therapy assistant','therapy assistant',
-  'rehabilitation assistant',
+  // Maternity & Children
   'maternity support worker','maternity care assistant',
   'neonatal support worker','neonatal healthcare assistant',
-  'paediatric support worker','paediatric support','children\'s support worker',
+  'paediatric support worker','children's support worker',
   'nursery assistant',
+  // Theatre & Surgical
   'theatre support worker','operating department support worker',
   'perioperative support worker','endoscopy support worker',
   'sterile services support worker',
+  // Emergency & Acute
   'emergency department support worker','a&e support worker',
   'acute medical unit support worker','critical care support worker',
-  'icu support worker','hdu support worker',
+  'icu support worker','hdu support worker','intensive care support worker',
+  'high dependency unit support worker',
+  // Specialist Clinical Areas
   'renal support worker','dialysis support worker',
   'oncology support worker','cancer support worker',
   'chemotherapy support worker','cardiology support worker',
@@ -152,41 +214,54 @@ const SW_INC = [
   'dermatology support worker','rheumatology support worker',
   'diabetes support worker','pain management support worker',
   'palliative care support worker','hospice support worker',
+  // Diagnostic Services Support
   'radiology support worker','imaging assistant',
-  'mri assistant','ct assistant','ultrasound assistant',
-  'phlebotomy support worker','laboratory support worker',
+  'laboratory support worker',
+  // Outpatient & Clinic Support
   'outpatient support worker','clinic support worker',
   'gp healthcare assistant','primary care support worker',
+  // Patient Flow & Experience
   'patient flow support worker','inpatient flow support worker',
   'patient experience support worker','discharge support worker',
   'admissions support worker','waiting list support worker',
   'care navigator','peer support worker','social prescribing link worker',
+  // Other Specialist Support
   'infection prevention support worker','tissue viability support worker',
-  'tissue donation support worker','organ donation support worker',
-  'research support worker','clinical trial support worker',
+  'organ donation support worker','research support worker',
   'mortuary support worker','mortuary assistant',
   'decontamination support worker',
 ];
 const SW_EXC = [
-  // Nursing titles - must not appear in SW
-  'registered nurse','staff nurse','charge nurse','ward manager','ward sister',
-  'nurse specialist','nurse consultant','nurse practitioner','advanced nurse practitioner',
-  'community nurse','district nurse','school nurse','practice nurse',
-  'nurse associate','nursing associate',
+  // Nursing - qualified
+  'registered nurse','staff nurse','charge nurse','ward sister',
+  'nurse specialist','nurse consultant','nurse practitioner',
+  'advanced nurse practitioner','community nurse','district nurse',
+  'school nurse','practice nurse','nurse associate','nursing associate',
+  'student nurse',
   // Midwifery
   'midwife','midwifery','student midwife',
   // Medical
-  'doctor','consultant','registrar','physician','surgeon','foundation doctor',
-  // Allied Health Professionals (qualified, not assistants)
-  'pharmacist','radiographer','psychologist','paramedic','sonographer',
-  'occupational therapist','physiotherapist','speech and language therapist',
-  'speech therapist','dietitian','dietician','podiatrist','orthotist',
-  'orthoptist','prosthetist',
-  // Social Work (qualified)
+  'doctor','consultant','registrar','physician','surgeon',
+  'foundation doctor','junior doctor',
+  // Scientists & Technicians - NOT support workers
+  'scientist','technician','physiologist','pharmacist',
+  'radiographer','psychologist','paramedic','sonographer',
+  'biomedical','healthcare scientist','clinical scientist',
+  'pharmacy technician','specialist pharmacy',
+  // Qualified Allied Health Professionals
+  'occupational therapist','physiotherapist',
+  'speech and language therapist','speech therapist',
+  'dietitian','dietician','podiatrist','orthotist',
+  'orthoptist','prosthetist','radiographer',
+  // Social Work
   'social worker','approved mental health professional','amhp',
-  // Management titles when standalone
-  'ward manager','service manager','clinical manager','team manager',
-  'operations manager','general manager','deputy manager',
+  // Management - not support worker level
+  'ward manager','service manager','clinical manager',
+  'team manager','operations manager','general manager',
+  'deputy manager','head of','director',
+  // Other non-SW clinical
+  'counsellor','psychotherapist','art therapist','music therapist',
+  'drama therapist','play therapist',
 ];
 
 // ADMIN - complete list, Band 5+, salary £32,000+
