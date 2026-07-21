@@ -2,7 +2,7 @@
 // Single file, no imports, no dependencies
 
 const CACHE = new Map();
-const TTL   = 30 * 60 * 1000; // 30 minutes
+const TTL = 2 * 60 * 1000; // 2 minutes
 
 // ── HTML PARSING ──────────────────────────────────────────────
 function dec(s) {
@@ -292,14 +292,9 @@ async function getCategoryJobs(cat) {
 // ── KEYWORD & FILTER LISTS ────────────────────────────────────
 
 const SW_KW = [
-  'healthcare assistant','healthcare support worker','clinical support worker',
-  'nursing assistant','ward support worker','patient support worker',
-  'patient care assistant','therapy support worker','mental health support worker',
-  'learning disability support worker','maternity support worker',
-  'theatre support worker','community support worker',      'operating department support worker','emergency department support worker',
-  'critical care support worker','oncology support worker','cardiology support worker',
-  'dialysis support worker','palliative care support worker',
-  'neonatal support worker','paediatric support worker','radiology support worker',
+  'support worker',
+  'healthcare assistant',
+  'nursing assistant',
 ];
 const SW_INC = [
   'healthcare support worker','healthcare assistant','health care assistant','hcsw','hca',
