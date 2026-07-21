@@ -1,155 +1,311 @@
-// Prisahub Jobs API - NHS England - Simple stable version
-const CACHE = new Map();
-const TTL = 30 * 60 * 1000;
+// Prisahub NHS Jobs API - Production v9
+// Single file, no imports, no dependencies
 
+const CACHE = new Map();
+const TTL   = 30 * 60 * 1000; // 30 minutes
+
+// ── HTML PARSING ──────────────────────────────────────────────
 function dec(s) {
   return s.replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
           .replace(/&quot;/g,'"').replace(/&#039;/g,"'").replace(/&nbsp;/g,' ');
 }
-function clean(s) { return dec(s.replace(/<[^>]+>/g,' ')).replace(/\s+/g,' ').trim(); }
-function getBand(s) { const m=s.match(/band\s*(\d+)/i); return m?parseInt(m[1]):undefined; }
-function pick(block, dt) {
-  const m=block.match(new RegExp(`<li[^>]*data-test="${dt}"[^>]*>([\\s\\S]*?)<\\/li>`,'i'));
-  return m?clean(m[1]).replace(/^[A-Za-z ]+:\s*/,'').trim():'';
+function clean(s) {
+  return dec(s.replace(/<[^>]+>/g,' ')).replace(/\s+/g,' ').trim();
+}
+function getBand(text) {
+  const t = text.toLowerCase();
+  const nm = t.match(/\bband\s*(\d+)\b/);
+  if (nm) return parseInt(nm[1]);
+  const words = {two:2,three:3,four:4,five:5,six:6,seven:7,eight:8};
+  const wm = t.match(/\bband\s+(two|three|four|five|six|seven|eight)\b/);
+  if (wm) return words[wm[1]];
+  return undefined;
+}
+function pickField(block, ...attrs) {
+  for (const attr of attrs) {
+    const re = new RegExp('<li[^>]*data-test="' + attr + '"[^>]*>([\\s\\S]*?)<\\/li>', 'i');
+    const m  = block.match(re);
+    if (m) {
+      const v = clean(m[1]).replace(/^[A-Za-z &\/]+:\s*/, '').trim();
+      if (v) return v;
+    }
+  }
+  return '';
 }
 
 function parseNhs(html) {
-  const jobs=[];
-  const liRe=/<li[^>]*class="[^"]*\bsearch-result\b[^"]*"[^>]*>([\s\S]*?)(?=<li[^>]*class="[^"]*\bsearch-result\b|<\/ul)/g;
+  const jobs = [];
+  const re   = /<li[^>]*class="[^"]*\bsearch-result\b[^"]*"[^>]*>([\s\S]*?)(?=<li[^>]*class="[^"]*\bsearch-result\b|<\/ul)/g;
   let m;
-  while((m=liRe.exec(html))!==null){
-    const b=m[1];
-    const tm=b.match(/<a[^>]*href="(\/candidate\/jobadvert\/[^"]+)"[^>]*data-test="search-result-job-title"[^>]*>([\s\S]*?)<\/a>/i)
-           ||b.match(/<a[^>]*data-test="search-result-job-title"[^>]*href="(\/candidate\/jobadvert\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-    if(!tm) continue;
-    const href=dec(tm[1]), title=clean(tm[2]), url=`https://www.jobs.nhs.uk${href}`;
-    let org='NHS', loc='United Kingdom';
-    const lb=b.match(/<div[^>]*data-test="search-result-location"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*class="nhsuk-grid-row/i);
-    if(lb){
-      const inn=lb[1];
-      const om=inn.match(/<h3[^>]*>([\s\S]*?)<div[^>]*class="location-font-size"/i); if(om) org=clean(om[1]);
-      const lm=inn.match(/<div[^>]*class="location-font-size"[^>]*>([\s\S]*?)<\/div>/i); if(lm) loc=clean(lm[1]).replace(/,\s*$/,'');
+  while ((m = re.exec(html)) !== null) {
+    const b  = m[1];
+    const tm = b.match(/<a[^>]*href="(\/candidate\/jobadvert\/[^"]+)"[^>]*data-test="search-result-job-title"[^>]*>([\s\S]*?)<\/a>/i)
+            || b.match(/<a[^>]*data-test="search-result-job-title"[^>]*href="(\/candidate\/jobadvert\/[^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!tm) continue;
+
+    const href  = dec(tm[1]);
+    const title = clean(tm[2]);
+    if (!title) continue;
+    const url = 'https://www.jobs.nhs.uk' + href;
+
+    let org = 'NHS', loc = 'United Kingdom';
+    const lb = b.match(/<div[^>]*data-test="search-result-location"[^>]*>([\s\S]*?)<\/div>\s*<div[^>]*class="nhsuk-grid-row/i);
+    if (lb) {
+      const inn = lb[1];
+      const om  = inn.match(/<h3[^>]*>([\s\S]*?)<div[^>]*class="location-font-size"/i);
+      if (om) org = clean(om[1]);
+      const lm  = inn.match(/<div[^>]*class="location-font-size"[^>]*>([\s\S]*?)<\/div>/i);
+      if (lm) loc = clean(lm[1]).replace(/,\s*$/, '');
     }
-    const salary=pick(b,'search-result-salary'),
-          closing=pick(b,'search-result-closingDate'),
-          contract=pick(b,'search-result-jobType'),
-          pattern=pick(b,'search-result-workingPattern');
-    // Try multiple date field names NHS Jobs uses
-    let posted=pick(b,'search-result-publicationDate')
-             ||pick(b,'search-result-posted')
-             ||pick(b,'search-result-datePosted')
-             ||pick(b,'search-result-date');
-    // Also try to extract date directly from block text patterns
-    if(!posted){
-      const dm=b.match(/(?:posted|published|date)[^>]*?(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})/i);
-      if(dm) posted=dm[1];
+
+    const salary   = pickField(b, 'search-result-salary');
+    const contract = pickField(b, 'search-result-jobType', 'search-result-contract');
+    const pattern  = pickField(b, 'search-result-workingPattern', 'search-result-working-pattern');
+    const closing  = pickField(b, 'search-result-closingDate', 'search-result-closing-date');
+    let   posted   = pickField(b, 'search-result-publicationDate', 'search-result-posted', 'search-result-datePosted');
+
+    if (!posted) {
+      const dm = b.match(/(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})/i);
+      if (dm) posted = dm[1];
     }
-    const ref=href.match(/\/jobadvert\/([^?]+)/), id=ref?ref[1]:`${jobs.length}-${title.slice(0,20)}`;
-    jobs.push({id,title,organisation:org,location:loc,
-      salary:salary||undefined, band:getBand(`${title} ${salary}`),
-      postedDate:posted||undefined, closingDate:closing||undefined,
-      contractType:contract||undefined, workingPattern:pattern||undefined, url});
+
+    const idM  = href.match(/\/jobadvert\/([^?#]+)/);
+    const id   = idM ? idM[1] : (jobs.length + '-' + title.slice(0, 15));
+
+    // Extract band AND other fields from ALL raw text in the block
+    const allBlockText = b.replace(/<[^>]+>/g, ' ').toLowerCase();
+    const band = getBand(title + ' ' + salary + ' ' + allBlockText);
+    
+    // If block text contains part time or fixed term - flag it
+    const isPartTime  = allBlockText.includes('part time') || allBlockText.includes('part-time');
+    const isFixedTerm = allBlockText.includes('fixed term') || allBlockText.includes('fixed-term');
+    const isBand2Text = allBlockText.includes('band 2') || allBlockText.includes('band2');
+
+    // Skip immediately if block text reveals part time, fixed term, band 2 or internal
+    const isInternal = allBlockText.includes('internal only') || allBlockText.includes('*internal');
+    const isTermTime = allBlockText.includes('term time') || allBlockText.includes('term-time');
+    if (isPartTime || isFixedTerm || isBand2Text || isInternal || isTermTime) continue;
+
+    jobs.push({
+      id, title, organisation: org, location: loc,
+      salary:       salary   || undefined,
+      band,
+      postedDate:   posted   || undefined,
+      closingDate:  closing  || undefined,
+      contractType: contract || undefined,
+      workingPattern: pattern || undefined,
+      url,
+    });
   }
   return jobs;
 }
 
-async function fetchPage(kw, loc, page=1, opts={}) {
-  const p=new URLSearchParams({keyword:kw, language:'en', contractType:'Permanent'});
-  if(loc) p.set('location', loc);
-  if(page>1) p.set('page', String(page));
-  // Always filter to Agenda for Change (NHS AfC) - rejects private/agency employers
-  p.set('payScheme','AfC');
-  // Band 3+ minimum salary if specified
-  if(opts.minSalary){ p.set('salaryFrom',String(opts.minSalary)); }
-  // Full time only if specified
-  if(opts.fullTime){ p.set('workingPattern','fullTime'); }
+// ── DATE SORTING ──────────────────────────────────────────────
+const MO = {
+  january:1,february:2,march:3,april:4,may:5,june:6,
+  july:7,august:8,september:9,october:10,november:11,december:12,
+  jan:1,feb:2,mar:3,apr:4,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12,
+};
+function parseDate(s) {
+  if (!s) return null;
+  const m = s.match(/(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
+  if (m) {
+    const mo = MO[m[2].toLowerCase()];
+    if (mo) return m[3] + '-' + String(mo).padStart(2,'0') + '-' + m[1].padStart(2,'0');
+  }
+  return null;
+}
+function newestFirst(a, b) {
+  const da = parseDate(a.postedDate), db = parseDate(b.postedDate);
+  if (!da && !db) return 0;
+  if (!da) return 1;
+  if (!db) return -1;
+  return db < da ? -1 : db > da ? 1 : 0;
+}
+
+// ── FETCHER ───────────────────────────────────────────────────
+const HDRS = {
+  'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+  'Accept':          'text/html,application/xhtml+xml,*/*;q=0.8',
+  'Accept-Language': 'en-GB,en;q=0.9',
+};
+
+async function fetchPage(kw, loc, page, sal, ft, minBand) {
+  const ck = 'pg:' + kw + ':' + loc + ':' + page + ':' + sal + ':' + (ft?1:0) + ':' + (minBand||0);
+  const hit = CACHE.get(ck);
+  if (hit && Date.now() - hit.at < TTL) return hit.v;
+
+  const p = new URLSearchParams({
+    keyword:      kw,
+    language:     'en',
+    contractType: 'Permanent',
+  });
+  if (loc)      p.set('location',    loc);
+  if (page > 1) p.set('page',        String(page));
+  if (ft)       p.set('workingPattern', 'full-time');
+  // Band filter at source - correct NHS Jobs payBand parameter
+  if (minBand && minBand >= 3) {
+    const bands = ['BAND_3','BAND_4','BAND_5','BAND_6','BAND_7','BAND_8A','BAND_8B','BAND_8C','BAND_8D','BAND_9'];
+    p.set('payBand', bands.slice(minBand - 3).join(','));
+  }
+
   try {
-    const r=await fetch(`https://www.jobs.nhs.uk/candidate/search/results?${p}`,{
-      headers:{'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
-               'Accept':'text/html','Accept-Language':'en-GB,en;q=0.9'},
-      signal:AbortSignal.timeout(8000)
+    const r = await fetch('https://www.jobs.nhs.uk/candidate/search/results?' + p, {
+      headers: HDRS,
+      signal:  AbortSignal.timeout(10000),
     });
-    if(!r.ok) return [];
-    return parseNhs(await r.text());
-  } catch(e){ return []; }
+    if (!r.ok) return [];
+    const jobs = parseNhs(await r.text());
+    CACHE.set(ck, { at: Date.now(), v: jobs });
+    return jobs;
+  } catch { return []; }
 }
 
-function isNhsOrg(org) {
-  const o=org.toLowerCase();
-  return o.includes('nhs')||o.includes('health board')||o.includes('hospital')||
-         o.includes('trust')||o.includes('integrated care')||o.includes('ambulance')||
-         o.includes('primary care')||o.includes('foundation');
+// ── FILTER ────────────────────────────────────────────────────
+function isNhs(org) {
+  const o = (org || '').toLowerCase();
+  if (o.includes('nhs'))          return true;
+  if (o.includes('health board')) return true;
+  if (o.includes('integrated care')) return true;
+  if (o.includes('ambulance') && o.includes('service')) return true;
+  if (o.includes('university hospitals')) return true;
+  if (o.includes('royal') && (o.includes('hospital') || o.includes('infirmary'))) return true;
+  if (o.includes('foundation trust')) return true;
+  if (o.includes('hospital trust'))   return true;
+  return false;
 }
 
-function applyFilter(jobs, cat) {
-  return jobs.filter(j=>{
-    const tl  = j.title.toLowerCase().trim();
-    const ct  = (j.contractType||'').toLowerCase();
-    const wp  = (j.workingPattern||'').toLowerCase();
-    const sal = (j.salary||'').toLowerCase();
-    // Combine all text fields to check for banned terms
-    const all = `${tl} ${ct} ${wp} ${sal}`;
+function reject(job) {
+  const t   = (job.title         || '').toLowerCase();
+  const ct  = (job.contractType  || '').toLowerCase();
+  const wp  = (job.workingPattern|| '').toLowerCase();
+  const sal = (job.salary        || '').toLowerCase();
+  const all = t + ' ' + ct + ' ' + wp + ' ' + sal;
 
-    // 1. Must be NHS organisation
-    if(!isNhsOrg(j.organisation)) return false;
+  // ── BAND 2 ───────────────────────────────────────────────────
+  // Check every possible format NHS uses
+  if (all.includes('band 2'))       return true;
+  if (all.includes('band2'))        return true;
+  if (all.includes('band two'))     return true;
+  if (all.includes('afc band 2'))   return true;
+  if (all.includes('afc: band 2'))  return true;
+  if (job.band !== undefined && job.band <= 2) return true;
+  // Band 2 blocked at source via payBand parameter
 
-    // 2. Permanent only - reject if contract type is set and not permanent
-    if(ct && !ct.includes('permanent')) return false;
+  // ── NOT PERMANENT ────────────────────────────────────────────
+  if (ct && !ct.includes('permanent')) return true;
 
-    // 3. No bank, fixed term, locum, temporary, agency - check ALL fields
-    if(/(bank\s+(?:worker|staff|nurse|hca|support)|bank\s+shift|fixed[\-\s]?term|locum|secondment|temporary\s+contract|agency\s+staff)/.test(all)) return false;
-    // Also catch standalone bank in title
-    if(/bank/.test(tl) && !tl.includes('blood bank') && !tl.includes('bank manager') && !tl.includes('eye bank')) return false;
+  // ── FIXED TERM ───────────────────────────────────────────────
+  if (all.includes('fixed term'))   return true;
+  if (all.includes('fixed-term'))   return true;
 
-    // 4. No part time
-    if(wp.includes('part time')||wp.includes('part-time')) return false;
-    if(tl.includes('part time')||tl.includes('part-time')) return false;
+  // ── BANK ─────────────────────────────────────────────────────
+  if (t.includes('bank') &&
+      !t.includes('blood bank') &&
+      !t.includes('eye bank') &&
+      !t.includes('bank manager') &&
+      !t.includes('memory bank')) return true;
 
-    // 5. Reject Band 2 explicitly stated in title or salary
-    if(/band\s*2/.test(tl)||/band\s*2/.test(sal)) return false;
-    // Also reject if band number is parsed and is 2 or below
-    if(j.band!==undefined && j.band<=2) return false;
+  // ── LOCUM / TEMP / AGENCY ────────────────────────────────────
+  if (all.includes('locum'))       return true;
+  if (all.includes('secondment'))  return true;
+  if (all.includes('temporary'))   return true;
+  if (all.includes('agency'))      return true;
 
-    // 7. Category min/max band
-    if(cat.minBand && j.band!==undefined && j.band<cat.minBand) return false;
-    if(cat.maxBand && j.band!==undefined && j.band>cat.maxBand) return false;
+  // ── PART TIME ────────────────────────────────────────────────
+  if (wp.includes('part time'))    return true;
+  if (wp.includes('part-time'))    return true;
+  if (t.includes('part time'))     return true;
+  if (t.includes('part-time'))     return true;
+  if (t.includes('term time'))     return true;
+  if (t.includes('term-time'))     return true;
+  if (wp.includes('flexible'))     return true;
+  if (wp.includes('term time'))    return true;
+  if (wp.includes('term-time'))    return true;
 
-    // 8. Exclude location
-    if(cat.exLoc && j.location.toLowerCase().includes(cat.exLoc.toLowerCase())) return false;
+  // Internal only jobs - catch all formats
+  if (t.includes('internal only'))  return true;
+  if (t.includes('(internal)'))     return true;
+  if (t.includes('[internal]'))     return true;
+  if (t.includes('* internal'))     return true;
+  if (t.includes('*internal'))      return true;
+  if (t.includes('internal*'))      return true;
+  if (t.includes('internal only*')) return true;
 
-    // 9. Title exclusions
-    if(cat.exc?.length && cat.exc.some(ex=>tl.includes(ex.toLowerCase()))) return false;
+  return false;
+}
 
-    // 10. Title inclusions
-    if(cat.inc?.length && !cat.inc.some(inc=>tl.includes(inc.toLowerCase()))) return false;
-
+function applyFilters(jobs, cat) {
+  return jobs.filter(j => {
+    if (!isNhs(j.organisation)) return false;
+    if (reject(j))              return false;
+    if (cat.exLoc && j.location.toLowerCase().includes(cat.exLoc)) return false;
+    if (cat.minBand && j.band !== undefined && j.band < cat.minBand) return false;
+    if (cat.maxBand && j.band !== undefined && j.band > cat.maxBand) return false;
+    const t = (j.title || '').toLowerCase();
+    if (cat.exc && cat.exc.some(x => t.includes(x))) return false;
+    if (cat.inc && !cat.inc.some(x => t.includes(x))) return false;
     return true;
   });
 }
 
-// Parse posted date string from NHS Jobs e.g. "14 July 2026" -> "2026-07-14"
-function parseDate(str) {
-  if(!str) return null;
-  const months={january:1,february:2,march:3,april:4,may:5,june:6,
-                july:7,august:8,september:9,october:10,november:11,december:12};
-  const m=str.toLowerCase().match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
-  if(!m) return null;
-  const mo=months[m[2]];
-  if(!mo) return null;
-  return `${m[3]}-${String(mo).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`;
+// ── MAIN FETCH LOOP ───────────────────────────────────────────
+async function getCategoryJobs(cat) {
+  const ck = 'cat:' + cat.id + ':v39';
+  const hit = CACHE.get(ck);
+  if (hit && Date.now() - hit.at < TTL) return hit.v;
+
+  const keywords = Array.isArray(cat.kw) ? cat.kw : [cat.kw];
+  const seen = new Set(), all = [];
+
+  for (const kw of keywords) {
+    // Fetch pages concurrently - 5 at a time for speed
+    let pg = 1;
+    while (pg <= 50) {
+      const pageNums = [pg, pg+1, pg+2, pg+3, pg+4].filter(p => p <= 50);
+      const results = await Promise.all(
+        pageNums.map(p => fetchPage(kw, cat.loc || '', p, cat.sal || 0, cat.ft || false, cat.minBand || 0))
+      );
+      let anyNew = false;
+      for (const jobs of results) {
+        if (!jobs.length) { anyNew = false; break; }
+        for (const j of jobs) {
+          const key = j.id || j.url;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          all.push(j);
+          anyNew = true;
+        }
+      }
+      if (!anyNew) break;
+      pg += 5;
+    }
+  }
+
+  const filtered = applyFilters(all, cat);
+  filtered.sort(newestFirst);
+
+  CACHE.set(ck, { at: Date.now(), v: filtered });
+  return filtered;
 }
 
-// ── CATEGORY TITLE LISTS ──────────────────────────────────────
+// ── KEYWORD & FILTER LISTS ────────────────────────────────────
 
-const SW_INC=['healthcare support worker','healthcare assistant','health care assistant',
-  'hcsw','hca','clinical support worker','nursing assistant',
-  'senior healthcare support worker','ward support worker','patient support worker',
-  'patient care assistant','assistant practitioner','therapy support worker',
-  'occupational therapy assistant','occupational therapy support worker',
-  'physiotherapy assistant','physiotherapy support worker',
-  'speech and language therapy assistant','therapy assistant','rehabilitation assistant',
-  'rehabilitation support worker','rehab therapy assistant',
-  'mental health support worker','mental health healthcare assistant',
+const SW_KW = [
+  'healthcare assistant','healthcare support worker','clinical support worker',
+  'nursing assistant','ward support worker','patient support worker',
+  'patient care assistant','therapy support worker','mental health support worker',
+  'learning disability support worker','maternity support worker',
+  'theatre support worker','community support worker',      'operating department support worker','emergency department support worker',
+  'critical care support worker','oncology support worker','cardiology support worker',
+  'dialysis support worker','palliative care support worker',
+  'neonatal support worker','paediatric support worker','radiology support worker',
+];
+const SW_INC = [
+  'healthcare support worker','healthcare assistant','health care assistant','hcsw','hca',
+  'clinical support worker','nursing assistant','senior healthcare support worker',
+  'ward support worker','patient support worker','patient care assistant',
+  'therapy support worker',        'mental health support worker','mental health healthcare assistant',
   'psychiatric support worker','psychiatric nursing assistant',
   'mental health clinical support worker','picu support worker','crisis support worker',
   'dementia support worker','forensic mental health support worker',
@@ -157,35 +313,66 @@ const SW_INC=['healthcare support worker','healthcare assistant','health care as
   'positive behaviour support worker','behaviour support worker','intensive support worker',
   'community support worker','community healthcare support worker',
   'community rehabilitation support worker','community mental health support worker',
-  'maternity support worker','maternity care assistant','neonatal support worker',
-  'neonatal healthcare assistant','paediatric support worker','nursery assistant',
+  'community falls support worker','community health and wellbeing worker',
+  'maternity support worker','maternity care assistant',
+  'neonatal support worker','neonatal healthcare assistant',
+  'paediatric support worker','nursery assistant',
   'theatre support worker','operating department support worker',
   'perioperative support worker','endoscopy support worker','sterile services support worker',
   'emergency department support worker','a&e support worker',
   'critical care support worker','icu support worker','hdu support worker',
-  'renal support worker','dialysis support worker','oncology support worker',
-  'cancer support worker','cardiology support worker','stroke support worker',
-  'respiratory support worker','orthopaedic support worker','diabetes support worker',
-  'palliative care support worker','radiology support worker',
-  'imaging assistant','laboratory support worker',
-  'outpatient support worker','clinic support worker','gp healthcare assistant',
-  'primary care support worker','care navigator','peer support worker',
-  'mortuary assistant','decontamination support worker'];
-
-const SW_EXC=['registered nurse','staff nurse','charge nurse','ward sister',
+  'acute medical unit support worker','renal support worker','dialysis support worker',
+  'oncology support worker','cancer support worker','chemotherapy support worker',
+  'cardiology support worker','stroke support worker','respiratory support worker',
+  'orthopaedic support worker','diabetes support worker','pain management support worker',
+  'palliative care support worker','hospice support worker',
+  'radiology support worker','imaging assistant','laboratory support worker',
+  'outpatient support worker','clinic support worker',
+  'gp healthcare assistant','primary care support worker',
+    'mortuary assistant','decontamination support worker',
+];
+const SW_EXC = [
+  'registered nurse','staff nurse','charge nurse','ward sister',
   'nurse specialist','nurse consultant','nurse practitioner','advanced nurse',
   'community nurse','district nurse','school nurse','practice nurse',
   'nurse associate','nursing associate','student nurse',
   'midwife','midwifery','doctor','consultant','registrar','physician','surgeon',
-  'scientist','technician','physiologist','pharmacist',
-  'radiographer','psychologist','paramedic','sonographer','biomedical',
+  'scientist','technician','physiologist','pharmacist','radiographer',
+  'psychologist','paramedic','sonographer','biomedical',
   'healthcare scientist','clinical scientist','pharmacy technician',
   'occupational therapist','physiotherapist','speech and language therapist',
-  'speech therapist','dietitian','dietician','podiatrist','social worker',
+  'dietitian','dietician','podiatrist','social worker',
   'ward manager','service manager','clinical manager','team manager',
-  'operations manager','general manager','deputy manager','head of','director'];
+  'general manager','deputy manager','head of','director',
+  'physiotherapy assistant','physiotherapy support worker',
+  'occupational therapy assistant','occupational therapy support worker',
+  'speech and language therapy assistant','therapy assistant',
+  'rehabilitation assistant','assistant practitioner',
+  'social prescribing link worker','rehab therapy assistant',
+  'dietetic assistant','orthopaedic',
+];
 
-const ADMIN_INC=['administrative assistant','administrator','administration officer',
+const ADMIN_KW = [
+  'administrator','administrative assistant','administration officer',
+  'business support','business administrator','receptionist','medical secretary',
+  'personal assistant','executive assistant','patient services administrator',
+  'admissions coordinator','waiting list coordinator','referral coordinator',
+  'booking coordinator','outpatient administrator','patient pathway coordinator',
+  'patient access administrator','health records officer','medical records administrator',
+  'hr administrator','workforce administrator','esr administrator',
+  'project administrator','programme support officer','pmo administrator',
+  'data administrator','information officer','service administrator',
+  'corporate administrator','operations coordinator','business support officer',
+  'project support officer','clinical systems administrator','epr administrator',
+  'governance administrator','quality administrator','complaints administrator',
+  'transformation administrator','service improvement administrator',
+  'executive support officer','board administrator','committee administrator',
+  'training administrator','education coordinator','research administrator',
+  'clinical trials administrator','communications manager','office manager',
+  'patient booking coordinator','cancer pathway coordinator','theatre booking coordinator',
+];
+const ADMIN_INC = [
+  'administrative assistant','administrator','administration officer',
   'administrative officer','administrative coordinator','senior administrator',
   'administration team leader','office administrator','business administrator',
   'executive administrator','receptionist','medical receptionist','senior receptionist',
@@ -201,162 +388,69 @@ const ADMIN_INC=['administrative assistant','administrator','administration offi
   'referral coordinator','clinic coordinator','outpatient administrator',
   'theatre booking coordinator','cancer pathway coordinator',
   'health records clerk','health records officer','medical records officer',
-  'medical records administrator','records coordinator',
+  'medical records administrator','clinical coding administrator','records coordinator',
+  'hr administrator','workforce administrator','recruitment administrator',
+  'medical staffing administrator','esr administrator','people administrator',
+  'workforce officer','learning and development administrator',
+  'temporary staffing administrator','finance administrator','finance assistant',
+  'accounts assistant','payroll administrator','procurement administrator',
+  'purchasing officer','supplies administrator','accounts payable officer',
+  'accounts receivable officer','information administrator','data administrator',
+  'information officer','data quality officer','systems administrator',
+  'digital administrator','epr administrator','clinical systems administrator',
   'governance administrator','quality administrator','risk administrator',
   'compliance administrator','audit administrator','complaints administrator',
   'patient safety administrator','project administrator','project support officer',
   'programme support officer','pmo administrator','project coordinator',
-  'transformation administrator','operational administrator','operations coordinator',
-  'service administrator','directorate administrator','department administrator',
-  'divisional administrator','business support officer','business support administrator',
-  'operational support officer','community administrator','mental health administrator',
-  'community team administrator','corporate administrator','board administrator',
-  'committee administrator','corporate governance administrator',
-  'executive office administrator','senior administrative officer',
-  'administration manager','office manager','business manager',
-  'corporate services manager','service manager','general manager','operations manager',
+  'transformation administrator','service improvement administrator',
+  'operational administrator','operations coordinator','service administrator',
+  'directorate administrator','department administrator','divisional administrator',
+  'business support officer','business support administrator','operational support officer',
+  'community administrator','community services administrator','mental health administrator',
+  'community team administrator','crisis team administrator','camhs administrator',
+  'therapy administrator','maternity administrator','neonatal administrator',
+  'paediatric administrator','research administrator','clinical trials administrator',
+  'medical education administrator','training administrator','education coordinator',
+  'corporate administrator','board administrator','committee administrator',
+  'corporate governance administrator','executive office administrator',
+  'senior administrative officer','administration manager','office manager',
+  'business manager','operations manager','corporate services manager',
+  'service manager','general manager',
   'communications manager','communications officer','communications adviser',
-  'communications advisor','senior communications officer','senior communications manager',
-  'head of communications','director of communications','media officer','media manager',
+  'senior communications officer','head of communications','media officer',
   'press officer','social media manager','internal communications manager',
   'public affairs manager','stakeholder engagement manager','marketing manager',
   'content manager','patient engagement manager','patient experience manager',
   'community engagement manager','policy officer','policy manager','policy adviser',
   'information governance officer','data protection officer','foi officer',
   'facilities manager','facilities officer','facilities coordinator',
-  'delivery manager','performance manager','quality manager',
-  'strategy officer','strategy manager','programme officer','programme coordinator'];
-
-const ADMIN_EXC=['nurse','nursing','doctor','consultant','registrar','physician','surgeon',
+];
+const ADMIN_EXC = [
+  'nurse','nursing','doctor','consultant','registrar','physician','surgeon',
   'midwife','therapist','pharmacist','radiographer','psychologist','paramedic',
-  'sonographer','support worker','healthcare assistant','hca','biomedical','social worker'];
+  'sonographer','support worker','healthcare assistant','hca',
+  'biomedical','social worker','scientist','technician',
+];
 
-const PM_INC=['project support officer','project administrator','project coordinator',
-  'pmo administrator','pmo support officer','programme support officer',
-  'transformation support officer','change support officer','improvement support officer',
-  'assistant project manager','junior project manager','project manager',
-  'senior project manager','digital project manager','it project manager',
-  'capital project manager','estates project manager','clinical project manager',
-  'transformation project manager','workforce project manager','epr project manager',
-  'service improvement project manager','operational project manager',
-  'programme project manager','research project manager',
-  'programme manager','senior programme manager','transformation programme manager',
-  'digital programme manager','clinical programme manager','workforce programme manager',
-  'strategic programme manager','improvement programme manager','programme delivery manager',
-  'pmo officer','pmo analyst','pmo coordinator','pmo manager','senior pmo manager',
-  'portfolio office manager','head of pmo','change manager','organisational change manager',
-  'transformation manager','service transformation manager','improvement manager',
-  'continuous improvement manager','quality improvement manager','business change manager',
-  'transformation lead','digital transformation manager','informatics project manager',
-  'it programme manager','systems implementation manager','epr implementation manager',
-  'digital delivery manager','technical project manager','data project manager',
-  'portfolio manager','head of programmes','head of transformation',
-  'associate director of programmes','deputy director of programmes',
-  'director of transformation','director of programmes'];
-
-const PM_EXC=['nurse','doctor','support worker','healthcare assistant',
-  'administrator','receptionist','secretary'];
-
-const BA_INC=['business analyst','senior business analyst','lead business analyst',
-  'principal business analyst','junior business analyst','associate business analyst',
-  'graduate business analyst','digital business analyst','clinical business analyst',
-  'technical business analyst','it business analyst','systems business analyst',
-  'data business analyst','information business analyst','healthcare business analyst',
-  'digital transformation business analyst','transformation business analyst',
-  'change business analyst','change analyst','transformation analyst',
-  'digital analyst','digital improvement analyst','digital project analyst',
-  'business change analyst','service transformation analyst','service improvement analyst',
-  'transformation officer','digital programme analyst',
-  'project analyst','programme analyst','pmo analyst','portfolio analyst',
-  'project support analyst','programme support analyst','benefits realisation analyst',
-  'project planning analyst','business improvement analyst',
-  'clinical systems analyst','epr analyst','ehr analyst',
-  'clinical informatics analyst','information systems analyst','application analyst',
-  'systems analyst','digital systems analyst','configuration analyst','integration analyst',
-  'quality improvement analyst','improvement analyst','continuous improvement analyst',
-  'lean improvement analyst','service improvement officer','service improvement facilitator',
-  'performance improvement analyst','operational improvement analyst',
-  'process improvement analyst','operational business analyst',
-  'operational excellence analyst','business process analyst',
-  'process mapping analyst','business process improvement analyst','process design analyst',
-  'automation analyst','rpa analyst','power platform analyst','power bi analyst',
-  'lead digital analyst','head of business analysis','head of informatics',
-  'head of digital transformation','head of business intelligence'];
-
-const BA_EXC=['nurse','doctor','support worker','healthcare assistant',
-  'project manager','programme manager','data analyst','financial analyst'];
-
-const DATA_INC=['data analyst','senior data analyst','lead data analyst','principal data analyst',
-  'data engineer','analytics engineer','data warehouse developer',
-  'data scientist','information analyst','reporting analyst',
-  'performance analyst','workforce analyst','operational analyst',
-  'service analyst','insight analyst','analytics officer',
-  'power bi developer','sql developer','database administrator','dba',
-  'workforce information analyst','workforce planning analyst',
-  'people analytics analyst','hr data analyst','workforce intelligence analyst',
-  'commissioning analyst','contract performance analyst'];
-
-const DATA_EXC=['nurse','doctor','support worker','healthcare assistant',
-  'business analyst','project manager','business intelligence analyst'];
-
-const BI_INC=['business intelligence analyst','bi analyst','senior bi analyst',
-  'bi developer','business intelligence developer','bi lead','bi manager',
-  'bi engineer','power bi analyst','tableau analyst','analytics engineer',
-  'head of business intelligence'];
-
-const IT_INC=['it support officer','it support technician','it service desk analyst',
-  'it helpdesk analyst','desktop support engineer','field support engineer',
-  'ict support officer','ict technician','infrastructure engineer',
-  'infrastructure support engineer','infrastructure analyst',
-  'technical support engineer','technical services engineer',
-  'end user computing engineer','device deployment engineer','systems support engineer',
-  'systems administrator','windows systems administrator','linux systems administrator',
-  'network administrator','server administrator','cloud administrator',
-  'active directory administrator','microsoft 365 administrator',
-  'azure administrator','vmware administrator',
-  'network engineer','senior network engineer','network analyst',
-  'network infrastructure engineer','wireless network engineer',
-  'network operations engineer','telecommunications engineer',
-  'unified communications engineer','voice engineer',
-  'cloud engineer','azure cloud engineer','aws cloud engineer',
-  'devops engineer','platform engineer','site reliability engineer','sre',
-  'kubernetes engineer','infrastructure automation engineer','cloud infrastructure engineer',
-  'software developer','software engineer','senior software engineer',
-  'full stack developer','backend developer','frontend developer',
-  '.net developer','java developer','python developer',
-  'mobile application developer','web developer','integration developer','api developer',
-  'it engineer','ict engineer',
-  'cyber security analyst','cyber security engineer','information security officer',
-  'security operations analyst','security engineer','grc analyst',
-  'identity and access management engineer','penetration tester','soc analyst',
-  'digital product manager','product owner','scrum master','agile delivery manager',
-  'clinical systems analyst','epr systems analyst','ehr analyst',
-  'clinical applications specialist','pacs administrator','ris administrator',
-  'digital clinical support analyst','clinical informatics specialist',
-  'biomedical engineer','clinical engineer','medical equipment engineer',
-  'medical electronics engineer','biomedical engineering technician',
-  'clinical technologist','medical device specialist','medical equipment technician'];
-
-const IT_EXC=['nurse','doctor','support worker','healthcare assistant',
-  'project manager','programme manager','business analyst'];
-
-const FIN_INC=['finance officer','finance assistant','finance administrator',
-  'finance manager','finance director','head of finance',
-  'management accountant','financial accountant','senior accountant',
-  'accounts payable officer','accounts receivable officer',
-  'payroll administrator','payroll manager','payroll officer',
-  'treasury officer','finance business partner','deputy director of finance',
-  'financial analyst','financial planning analyst','cost improvement analyst',
-  'financial reporting analyst'];
-
-const FIN_EXC=['nurse','doctor','support worker','healthcare assistant',
-  'project manager','business analyst'];
-
-const HR_INC=['hr assistant','hr administrator','hr officer','hr adviser','hr advisor',
+const HR_KW = [
+  'human resources','hr adviser','hr officer','hr business partner',
+  'hr administrator','workforce administrator','workforce adviser',
+  'workforce information','workforce planning','recruitment adviser',
+  'recruitment officer','resourcing adviser','talent acquisition adviser',
+  'medical staffing officer','employee relations adviser',
+  'organisational development','learning and development',
+  'esr administrator','esr officer','hr systems analyst',
+  'people analytics','staff experience','wellbeing adviser',
+  'edi officer','inclusion manager','hr analyst','people analyst',
+  'hr data analyst','hr project officer','workforce transformation',
+  'head of people','head of workforce','director of workforce','director of people',
+];
+const HR_INC = [
+  'hr assistant','hr administrator','hr officer','hr adviser','hr advisor',
   'senior hr adviser','hr business partner','senior hr business partner',
   'lead hr business partner','hr manager','head of human resources',
   'director of human resources','chief people officer',
-  'workforce administrator','workforce officer','workforce adviser','workforce advisor',
+  'workforce administrator','workforce officer','workforce adviser',
   'workforce information officer','workforce analyst','workforce planning analyst',
   'workforce planning manager','workforce development manager',
   'workforce transformation manager','workforce project manager',
@@ -365,7 +459,8 @@ const HR_INC=['hr assistant','hr administrator','hr officer','hr adviser','hr ad
   'resourcing officer','resourcing adviser','talent acquisition adviser',
   'talent acquisition partner','talent acquisition manager',
   'medical recruitment officer','medical staffing officer','medical staffing manager',
-  'employee relations officer','employee relations adviser','employee relations manager',
+  'employee relations officer','employee relations adviser',
+  'senior employee relations adviser','employee relations manager',
   'case manager hr','hr case adviser',
   'learning and development administrator','learning and development officer',
   'learning and development adviser','learning and development manager',
@@ -382,301 +477,310 @@ const HR_INC=['hr assistant','hr administrator','hr officer','hr adviser','hr ad
   'hr project officer','hr project manager','workforce transformation officer',
   'people transformation manager','hr change manager',
   'hr analyst','people analyst','workforce information analyst',
-  'hr data analyst','people analytics manager','hr reporting analyst'];
+  'hr data analyst','people analytics manager','hr reporting analyst',
+  'deputy head of hr','head of people','head of workforce',
+  'associate director of hr','deputy director of hr',
+  'director of workforce','director of people',
+];
+const HR_EXC = [
+  'nurse','doctor','support worker','healthcare assistant',
+  'project manager','programme manager','it engineer','software',
+  'biomedical','radiographer','pharmacist',
+];
 
-const HR_EXC=['nurse','doctor','support worker','healthcare assistant',
-  'project manager','business analyst','it engineer','software'];
-
-const NURSE_INC=['staff nurse','registered nurse','rgn'];
-const NURSE_EXC=['assistant','support worker','student','trainee','apprentice',
-  'mental health','research','community','district','school',
-  'specialist','consultant','practitioner','advanced'];
-
-const MH_NURSE_INC=['mental health nurse','rmn','registered mental health','psychiatric nurse',
-  'mental health practitioner'];
-const MH_NURSE_EXC=['support worker','assistant','student','trainee'];
-
-const RES_NURSE_INC=['research nurse','clinical research nurse','senior research nurse',
-  'research sister'];
-
-const FELLOW_INC=['clinical fellow','junior clinical fellow','senior clinical fellow',
-  'foundation year 1','foundation year 2','fy1','fy2','fy3',
-  'st1','st2','st3','st4','st5','st6','st7','st8','ct1','ct2','ct3',
-  'trust doctor','specialty doctor','specialty registrar',
-  'core trainee','associate specialist','sas doctor','foundation doctor'];
-
-const CODER_INC=['clinical coder','clinical coding','coding auditor',
-  'clinical coding manager','senior clinical coder','lead clinical coder',
-  'clinical coding officer','clinical coding analyst','chief clinical coder'];
-
-const DIET_INC=['dietitian','dietician','community dietitian','specialist dietitian',
-  'paediatric dietitian','senior dietitian','lead dietitian',
-  'renal dietitian','oncology dietitian','clinical dietitian'];
-
-const MICRO_INC=['biomedical scientist microbiology','microbiologist','microbiology scientist',
-  'consultant microbiologist','clinical microbiologist',
-  'specialist biomedical scientist microbiology','senior biomedical scientist microbiology',
-  'lead biomedical scientist microbiology','microbiology'];
-
-const PHLEB_INC=['phlebotomist','phlebotomy','lead phlebotomist','senior phlebotomist',
-  'phlebotomy team leader','chief phlebotomist','community phlebotomist',
-  'phlebotomy supervisor','phlebotomy manager'];
-
-const RES_INC=['research assistant','research associate','research practitioner',
-  'research officer','clinical research practitioner','trial coordinator',
-  'study coordinator','research coordinator','research fellow',
-  'research support officer','clinical research assistant'];
-const RES_EXC=['research nurse','research midwife','research manager','research director'];
-
-const SW2_INC=['social worker','senior social worker','amhp',
-  'approved mental health professional','children social worker',
-  'adult social worker','community social worker','statutory social worker',
-  'qualified social worker','practice educator','social work practitioner',
-  'team manager social work'];
-const SW2_EXC=['support worker','healthcare assistant','admin','administrator'];
-
-const LOG_INC=['logistics manager','logistics officer','logistics coordinator',
-  'supply chain manager','procurement officer','procurement manager',
-  'procurement specialist','stores officer','supplies officer',
-  'materials manager','inventory manager','transport manager',
-  'fleet manager','distribution manager','warehousing manager',
-  'stock controller','logistics'];
-
-const COORD_INC=['pathway coordinator','patient coordinator','care coordinator',
-  'referral coordinator','discharge coordinator','admissions coordinator',
-  'outpatient coordinator','scheduling coordinator','appointments coordinator',
-  'waiting list coordinator','access coordinator','service coordinator',
-  'booking coordinator','clinical coordinator','patient flow coordinator',
-  'elective care coordinator','cancer pathway coordinator',
-  'theatre booking coordinator','clinic coordinator'];
-
-const EST_INC=['estates assistant','estates administrator','estates officer',
+const EST_KW = [
+  'estates manager','estates officer','estates operations manager',
+  'estates maintenance manager','head of estates',
+  'facilities manager','building services manager',  'property manager','engineering manager','compliance manager',
+  'hard fm manager','asset manager','estates assistant','estates administrator',
+  'estates coordinator','fire safety manager','water safety manager',
+  'energy manager','sustainability manager','estate surveyor','property surveyor',
+  'electrical engineering manager','mechanical engineering manager',
+  'building services engineer','estates engineer',
+  'associate director of estates','director of estates',
+  'construction project manager',
+  'infrastructure manager','maintenance manager','maintenance coordinator',
+];
+const EST_INC = [
+  'estates assistant','estates administrator','estates officer',
   'assistant estates officer','estates coordinator','estates support officer',
   'property assistant','maintenance coordinator','facilities officer',
-  'estates manager','assistant estates manager','estates operations manager',
-  'estates maintenance manager','building services manager','property manager',
-  'facilities manager','compliance manager','contracts manager',
-  'engineering manager','hard fm manager','maintenance manager',
-  'senior estates manager','head of estates','head of property',
-  'estates programme manager','capital projects manager','capital development manager',
+  'facilities coordinator','estates manager','assistant estates manager',
+  'estates operations manager','estates maintenance manager',
+  'building services manager','property manager','facilities manager',
+  'compliance manager','contracts manager','engineering manager',
+  'hard fm manager','maintenance manager','senior estates manager',
+  'head of estates','head of estates and facilities','head of property',
+  'estates programme manager','capital development manager',
   'estate development manager','operational estates manager','infrastructure manager',
   'engineering services manager','strategic estates manager','asset manager',
   'associate director of estates','deputy director of estates',
   'director of estates','chief estates officer','director of capital projects',
   'estates compliance manager','fire safety manager','water safety manager',
+  'authorised person','responsible person','health and safety manager',
   'energy manager','sustainability manager','environmental manager',
-  'capital project manager','estates project manager','capital delivery manager',
-  'construction project manager','property surveyor','estate surveyor',
+  'capital projects officer',  'capital delivery manager','construction project manager',
+  'property surveyor','estate surveyor','commercial estates manager',
+  'lease manager','accommodation manager',
   'electrical engineering manager','mechanical engineering manager',
-  'building services engineer','estates engineer','senior estates engineer'];
-
-// ── ALL CATEGORIES ────────────────────────────────────────────
-const CATS=[
-  {id:'admin-out', label:'Admin Outside London', kw:[
-    'administrator','administrative assistant','administration officer',
-    'business support','business administrator','receptionist','medical secretary',
-    'personal assistant','executive assistant','patient services',
-    'admissions coordinator','waiting list coordinator','referral coordinator',
-    'booking coordinator','outpatient administrator','health records',
-    'medical records','hr administrator','workforce administrator',
-    'project administrator','programme support officer','data administrator',
-    'information officer','service administrator','corporate administrator',
-    'communications manager','office manager','operations coordinator',
-    'project support officer','business support officer',
-    'patient pathway coordinator','patient access administrator',
-    'clinical systems administrator','epr administrator',
-    'governance administrator','quality administrator',
-    'transformation administrator','service improvement administrator',
-    'executive support officer','executive office administrator',
-    'board administrator','committee administrator','training administrator',
-    'education coordinator','research administrator','clinical trials administrator'
-  ], loc:'', exLoc:'london', minBand:5, minSalary:32000, group:'Admin', inc:ADMIN_INC, exc:ADMIN_EXC},
-  {id:'admin-lon', label:'Admin in London', kw:[
-    'administrator','administrative assistant','administration officer',
-    'business support','business administrator','receptionist','medical secretary',
-    'personal assistant','executive assistant','patient services',
-    'admissions coordinator','waiting list coordinator','referral coordinator',
-    'booking coordinator','outpatient administrator','health records',
-    'medical records','hr administrator','workforce administrator',
-    'project administrator','programme support officer','data administrator',
-    'information officer','service administrator','corporate administrator',
-    'communications manager','office manager','operations coordinator',
-    'project support officer','business support officer',
-    'patient pathway coordinator','patient access administrator',
-    'clinical systems administrator','epr administrator',
-    'governance administrator','quality administrator',
-    'transformation administrator','service improvement administrator',
-    'executive support officer','executive office administrator',
-    'board administrator','committee administrator','training administrator',
-    'education coordinator','research administrator','clinical trials administrator'
-  ], loc:'London', minBand:5, minSalary:32000, group:'Admin', inc:ADMIN_INC, exc:ADMIN_EXC},
-  {id:'sw-lon',    label:'Support Worker in London',       kw:['healthcare assistant','healthcare support worker','clinical support worker','nursing assistant','ward support worker','therapy support worker','mental health support worker','learning disability support worker','maternity support worker','theatre support worker','community support worker','rehabilitation support worker','assistant practitioner','care navigator','peer support worker'], loc:'London',          minBand:3, minSalary:24071, fullTime:true, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-out',    label:'Support Worker Outside London',  kw:['healthcare assistant','healthcare support worker','clinical support worker','nursing assistant','ward support worker','therapy support worker','mental health support worker','learning disability support worker','maternity support worker','theatre support worker','community support worker','rehabilitation support worker','assistant practitioner','care navigator','peer support worker'], loc:'', exLoc:'london',   minBand:3, minSalary:24071, fullTime:true, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-wm',     label:'Support Worker West Midlands',   kw:['healthcare assistant','healthcare support worker','clinical support worker','nursing assistant','ward support worker','therapy support worker','mental health support worker','learning disability support worker','maternity support worker','theatre support worker','community support worker','rehabilitation support worker','assistant practitioner','care navigator','peer support worker'], loc:'West Midlands',      minBand:3, minSalary:24071, fullTime:true, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-wales',  label:'Support Worker in Wales',        kw:['healthcare assistant','healthcare support worker','clinical support worker','nursing assistant','ward support worker','therapy support worker','mental health support worker','learning disability support worker','maternity support worker','theatre support worker','community support worker','rehabilitation support worker','assistant practitioner','care navigator','peer support worker'], loc:'Wales',              minBand:3, minSalary:24071, fullTime:true, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-manc',   label:'Support Worker Manchester',      kw:['healthcare assistant','healthcare support worker','clinical support worker','nursing assistant','ward support worker','therapy support worker','mental health support worker','learning disability support worker','maternity support worker','theatre support worker','community support worker','rehabilitation support worker','assistant practitioner','care navigator','peer support worker'], loc:'Manchester',         minBand:3, minSalary:24071, fullTime:true, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-wy',     label:'Support Worker W Yorkshire',     kw:['healthcare assistant','healthcare support worker','clinical support worker','nursing assistant','ward support worker','therapy support worker','mental health support worker','learning disability support worker','maternity support worker','theatre support worker','community support worker','rehabilitation support worker','assistant practitioner','care navigator','peer support worker'], loc:'Leeds',              minBand:3, minSalary:24071, fullTime:true, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'sw-ey',     label:'Support Worker E Yorkshire',     kw:['healthcare assistant','healthcare support worker','clinical support worker','nursing assistant','ward support worker','therapy support worker','mental health support worker','learning disability support worker','maternity support worker','theatre support worker','community support worker','rehabilitation support worker','assistant practitioner','care navigator','peer support worker'], loc:'Hull',               minBand:3, minSalary:24071, fullTime:true, group:'Support Worker', inc:SW_INC, exc:SW_EXC},
-  {id:'nurse',     label:'Staff Nurse',           kw:'staff nurse',          loc:'', minBand:5, maxBand:5,      group:'Nursing',   inc:NURSE_INC,    exc:NURSE_EXC},
-  {id:'mh-nurse',  label:'Mental Health Nurse',   kw:'mental health nurse',  loc:'',                           group:'Nursing',   inc:MH_NURSE_INC, exc:MH_NURSE_EXC},
-  {id:'res-nurse', label:'Research Nurse',        kw:'research nurse',       loc:'',                           group:'Nursing',   inc:RES_NURSE_INC},
-  {id:'fellow',    label:'Clinical Fellow',       kw:'clinical fellow',      loc:'',                           group:'Clinical',  inc:FELLOW_INC},
-  {id:'coder',     label:'Clinical Coder',        kw:'clinical coder',       loc:'',                           group:'Clinical',  inc:CODER_INC},
-  {id:'diet',      label:'Dietician',             kw:'dietitian',            loc:'',                           group:'Clinical',  inc:DIET_INC},
-  {id:'micro',     label:'Microbiology',           kw:'microbiology',         loc:'',                           group:'Clinical',  inc:MICRO_INC},
-  {id:'phleb',     label:'Phlebotomist Leader',   kw:'phlebotomist',         loc:'',                           group:'Clinical',  inc:PHLEB_INC},
-  {id:'res-asst',  label:'Research Assistant',    kw:'research assistant',   loc:'',                           group:'Clinical',  inc:RES_INC,      exc:RES_EXC},
-  {id:'sw3',       label:'Social Worker',          kw:'social worker',        loc:'',                           group:'Clinical',  inc:SW2_INC,      exc:SW2_EXC},
-  {id:'data', label:'Data Analyst', kw:[
-    'data analyst','data engineer','data scientist','information analyst',
-    'reporting analyst','performance analyst','workforce analyst',
-    'business intelligence analyst','bi analyst','power bi',
-    'sql developer','database administrator','analytics engineer',
-    'workforce information analyst','workforce planning analyst',
-    'people analytics analyst','hr data analyst','commissioning analyst',
-    'service analyst','insight analyst','analytics officer',
-    'population health analyst','clinical informatics analyst'
-  ], loc:'', group:'Professional', inc:DATA_INC, exc:DATA_EXC},
-  {id:'bi',        label:'BI Analyst',             kw:'business intelligence analyst', loc:'',                 group:'Professional', inc:BI_INC},
-  {id:'fin',       label:'Finance',               kw:'finance officer',       loc:'',                           group:'Professional', inc:FIN_INC,  exc:FIN_EXC},
-  {id:'hr', label:'HR', kw:[
-    'human resources','hr','people','workforce','recruitment','resourcing',
-    'employee relations','hr adviser','hr officer','hr business partner',
-    'esr','medical staffing','organisational development',
-    'learning and development','talent acquisition','hr systems',
-    'people analytics','workforce information','workforce planning',
-    'staff experience','hr administrator','workforce administrator',
-    'hr analyst','people analyst','hr data analyst','hr reporting analyst',
-    'wellbeing adviser','edi officer','inclusion manager',
-    'hr project officer','workforce transformation officer',
-    'deputy head of hr','head of people','head of workforce',
-    'associate director of hr','director of workforce','director of people'
-  ], loc:'', group:'Professional', inc:HR_INC, exc:HR_EXC},
-  {id:'it', label:'IT / Engineering', kw:[
-    'it engineer','ict engineer','network engineer','software developer',
-    'software engineer','infrastructure engineer','cyber security',
-    'cloud engineer','devops engineer','it support officer',
-    'service desk analyst','helpdesk analyst','desktop support engineer',
-    'systems administrator','network administrator','azure administrator',
-    'it project manager','digital product manager','product owner',
-    'scrum master','agile delivery manager','solutions architect',
-    'enterprise architect','technical architect','cloud architect',
-    'security engineer','soc analyst','penetration tester',
-    'biomedical engineer','clinical engineer','medical equipment engineer',
-    'epr systems analyst','clinical applications specialist',
-    'it helpdesk','it service desk','1st line support','2nd line support'
-  ], loc:'', group:'Professional', inc:IT_INC, exc:IT_EXC},
-  {id:'pm', label:'Project Manager', kw:[
-    'project manager','programme manager','project support officer',
-    'project administrator','project coordinator','pmo administrator',
-    'pmo officer','pmo analyst','portfolio manager',
-    'transformation manager','change manager','improvement manager',
-    'digital project manager','it project manager','capital project manager',
-    'programme delivery manager','project lead','delivery manager',
-    'head of pmo','head of programmes','head of transformation',
-    'service transformation manager','business change manager',
-    'epr implementation manager','digital delivery manager',
-    'workforce project manager','transformation support officer'
-  ], loc:'', group:'Professional', inc:PM_INC, exc:PM_EXC},
-  {id:'ba', label:'Business Analyst', kw:[
-    'business analyst','systems analyst','process analyst',
-    'transformation analyst','change analyst','digital analyst',
-    'improvement analyst','service improvement analyst',
-    'project analyst','programme analyst','pmo analyst',
-    'clinical systems analyst','epr analyst','ehr analyst',
-    'application analyst','configuration analyst','integration analyst',
-    'quality improvement analyst','performance improvement analyst',
-    'process improvement analyst','business process analyst',
-    'automation analyst','rpa analyst','power platform analyst',
-    'power bi analyst','workforce information analyst',
-    'operational business analyst','service transformation analyst',
-    'lead business analyst','head of business analysis',
-    'digital improvement analyst','business improvement analyst'
-  ], loc:'', group:'Professional', inc:BA_INC, exc:BA_EXC},
-  {id:'log',       label:'Logistics',             kw:'logistics',             loc:'',                           group:'Professional', inc:LOG_INC},
-  {id:'coord',     label:'Coordinator',           kw:'pathway coordinator',   loc:'',                           group:'Professional', inc:COORD_INC},
-  {id:'est', label:'Estates', kw:[
-    'estates manager','estates officer','estates operations manager',
-    'estates maintenance manager','estates project manager',
-    'head of estates','facilities manager','building services manager',
-    'capital projects manager','property manager','engineering manager',
-    'compliance manager','hard fm manager','asset manager',
-    'estates assistant','estates administrator','estates coordinator',
-    'fire safety manager','water safety manager','energy manager',
-    'sustainability manager','estate surveyor','property surveyor',
-    'electrical engineering manager','mechanical engineering manager',
-    'building services engineer','estates engineer',
-    'associate director of estates','director of estates',
-    'capital project manager','capital delivery manager',
-    'construction project manager','infrastructure manager'
-  ], loc:'', group:'Professional', inc:EST_INC},
+  'building services engineer','estates engineer','senior estates engineer',
 ];
 
+const PM_KW = [
+  'project manager','programme manager','project support officer',
+  'project administrator','project coordinator','pmo administrator',
+  'pmo officer','portfolio manager','transformation manager','change manager',
+  'improvement manager','digital project manager','programme delivery manager',
+  'delivery manager','service transformation manager',
+  'business change manager','epr implementation manager','workforce project manager',
+];
+const PM_INC = [
+  'project support officer','project administrator','project coordinator',
+  'pmo administrator','pmo support officer','programme support officer',
+  'transformation support officer','change support officer','improvement support officer',
+  'assistant project manager','junior project manager','project manager',
+  'senior project manager','digital project manager','it project manager',
+  'clinical project manager',
+  'transformation project manager','workforce project manager','epr project manager',
+  'service improvement project manager','operational project manager',
+  'programme project manager','programme manager','senior programme manager',
+  'transformation programme manager','digital programme manager',
+  'clinical programme manager','workforce programme manager',
+  'strategic programme manager','improvement programme manager',
+  'programme delivery manager','pmo officer','pmo analyst','pmo coordinator',
+  'pmo manager','senior pmo manager','portfolio office manager',  'change manager','organisational change manager','transformation manager',
+  'service transformation manager','improvement manager',
+  'continuous improvement manager','quality improvement manager',
+  'business change manager','transformation lead','digital transformation manager',
+  'informatics project manager','it programme manager','systems implementation manager',
+  'epr implementation manager','digital delivery manager','technical project manager',
+  'data project manager','portfolio manager',    ];
+const PM_EXC = [
+  'nurse','doctor','support worker','healthcare assistant',
+  'administrator','receptionist','secretary',
+];
+
+const BA_KW = [
+  'business analyst','systems analyst','process analyst','transformation analyst',
+  'change analyst','digital analyst','improvement analyst','service improvement analyst',
+  'project analyst','programme analyst','clinical systems analyst','epr analyst',
+  'application analyst','quality improvement analyst','process improvement analyst',
+  'business process analyst','automation analyst','rpa analyst',
+  'power platform analyst','power bi analyst','workforce information analyst',
+  'lead business analyst',
+];
+const BA_INC = [
+  'business analyst','senior business analyst','lead business analyst',
+  'principal business analyst','junior business analyst','associate business analyst',
+  'graduate business analyst','digital business analyst','clinical business analyst',
+  'technical business analyst','it business analyst','systems business analyst',
+  'data business analyst','information business analyst','healthcare business analyst',
+  'transformation business analyst','change business analyst','change analyst',
+  'transformation analyst','digital analyst','digital improvement analyst',
+  'business change analyst','service transformation analyst','service improvement analyst',
+  'transformation officer','project analyst','programme analyst','pmo analyst',
+  'portfolio analyst','benefits realisation analyst','business improvement analyst',
+  'clinical systems analyst','epr analyst','ehr analyst','clinical informatics analyst',
+  'information systems analyst','application analyst','systems analyst',
+  'digital systems analyst','configuration analyst','integration analyst',
+  'quality improvement analyst','improvement analyst','continuous improvement analyst',
+  'lean improvement analyst','service improvement officer','service improvement facilitator',
+  'performance improvement analyst','process improvement analyst',
+  'operational business analyst','business process analyst','process mapping analyst',
+  'automation analyst','rpa analyst','power platform analyst','power bi analyst',
+  'lead digital analyst',  ];
+const BA_EXC = [
+  'nurse','doctor','support worker','healthcare assistant',
+  'project manager','programme manager','financial analyst',
+];
+
+const DATA_KW = [
+  'data analyst','data engineer','data scientist','information analyst',
+  'reporting analyst','performance analyst','workforce analyst',
+  'power bi developer','sql developer','database administrator',
+  'analytics engineer','population health analyst','clinical informatics analyst',
+  'workforce information analyst','people analytics analyst','commissioning analyst',
+];
+const DATA_INC = [
+  'data analyst','senior data analyst','lead data analyst','principal data analyst',
+  'data engineer','analytics engineer','data warehouse developer','data scientist',
+  'information analyst','reporting analyst','performance analyst','workforce analyst',
+  'operational analyst','service analyst','insight analyst','analytics officer',
+  'power bi developer','sql developer','database administrator','dba',
+  'workforce information analyst','workforce planning analyst','people analytics analyst',
+  'hr data analyst','workforce intelligence analyst','commissioning analyst',
+  'contract performance analyst','population health analyst','clinical informatics analyst',
+];
+const DATA_EXC = [
+  'nurse','doctor','support worker','healthcare assistant',
+  'business analyst','project manager','business intelligence analyst',
+];
+
+const BI_KW  = ['business intelligence analyst','bi analyst','bi developer','power bi analyst','tableau analyst'];
+const BI_INC = [
+  'business intelligence analyst','bi analyst','senior bi analyst',
+  'bi developer','business intelligence developer','bi lead','bi manager',
+  'bi engineer','power bi analyst','tableau analyst','analytics engineer',
+  ];
+
+const IT_KW = [
+  'it engineer','ict engineer','network engineer','software developer',
+  'software engineer','infrastructure engineer','cyber security','cloud engineer',
+  'devops engineer','it support officer','service desk analyst','helpdesk analyst',
+  'desktop support engineer','systems administrator','network administrator',
+  'azure administrator','digital product manager','product owner','scrum master',
+  'agile delivery manager','solutions architect','enterprise architect',
+  'technical architect','security engineer','soc analyst','penetration tester',
+  'biomedical engineer','clinical engineer','medical equipment engineer',
+  'epr systems analyst','clinical applications specialist',
+  '1st line support','2nd line support',
+];
+const IT_INC = [
+  'it support officer','it support technician','it service desk analyst',
+  'it helpdesk analyst','desktop support engineer','field support engineer',
+  'ict support officer','ict technician','infrastructure engineer',
+  'infrastructure support engineer','infrastructure analyst',
+  'technical support engineer','technical services engineer',
+  'end user computing engineer','device deployment engineer','systems support engineer',
+  'systems administrator','windows systems administrator','linux systems administrator',
+  'network administrator','server administrator','cloud administrator',
+  'active directory administrator','microsoft 365 administrator',
+  'azure administrator','vmware administrator','network engineer',
+  'senior network engineer','network analyst','network infrastructure engineer',
+  'wireless network engineer','network operations engineer',
+  'telecommunications engineer','unified communications engineer',
+  'cloud engineer','azure cloud engineer','aws cloud engineer',
+  'devops engineer','platform engineer','site reliability engineer',
+  'kubernetes engineer','software developer','software engineer',
+  'senior software engineer','full stack developer','backend developer',
+  'frontend developer','.net developer','java developer','python developer',
+  'mobile application developer','web developer','integration developer',
+  'api developer','it engineer','ict engineer',
+  'cyber security analyst','cyber security engineer','information security officer',
+  'security operations analyst','security engineer','grc analyst',
+  'penetration tester','soc analyst','digital product manager',
+  'product owner','scrum master','agile delivery manager',
+  'clinical systems analyst','epr systems analyst','ehr analyst',
+  'clinical applications specialist','pacs administrator','ris administrator',
+  'digital clinical support analyst','biomedical engineer','clinical engineer',
+  'medical equipment engineer','medical electronics engineer',
+  'biomedical engineering technician','clinical technologist','medical device specialist',
+];
+const IT_EXC = [
+  'nurse','doctor','support worker','healthcare assistant',
+  'project manager','programme manager','business analyst',
+];
+
+const FIN_KW = [
+  'finance officer','finance manager','management accountant','financial accountant',
+  'payroll officer','payroll manager','finance business partner','financial analyst',
+  'financial planning analyst','cost improvement analyst','finance administrator',
+  'accounts payable officer','head of finance',
+];
+const FIN_INC = [
+  'finance officer','finance assistant','finance administrator','finance manager',
+  'finance director','head of finance','management accountant','financial accountant',
+  'senior accountant','accounts payable officer','accounts receivable officer',
+  'payroll administrator','payroll manager','payroll officer','treasury officer',
+  'finance business partner','deputy director of finance','financial analyst',
+  'financial planning analyst','cost improvement analyst','financial reporting analyst',
+];
+const FIN_EXC = ['nurse','doctor','support worker','healthcare assistant','project manager','business analyst'];
+
+const COORD_KW = [
+  'pathway coordinator','patient coordinator','care coordinator',
+  'referral coordinator','discharge coordinator','admissions coordinator',
+  'outpatient coordinator','appointments coordinator',
+  'waiting list coordinator','access coordinator',
+  'cancer pathway coordinator','theatre booking coordinator',
+];
+const COORD_INC = [
+  'pathway coordinator','patient coordinator','care coordinator',
+  'referral coordinator','discharge coordinator','admissions coordinator',
+  'outpatient coordinator','scheduling coordinator','appointments coordinator',
+  'waiting list coordinator','access coordinator','service coordinator',
+  'booking coordinator','clinical coordinator','patient flow coordinator',
+  'elective care coordinator','cancer pathway coordinator',
+  'theatre booking coordinator','clinic coordinator',
+];
+
+const LOG_KW  = ['logistics manager','logistics officer','logistics coordinator','supply chain manager','procurement officer','procurement manager','stores officer','supplies officer','transport manager','fleet manager','stock controller'];
+const LOG_INC = ['logistics manager','logistics officer','logistics coordinator','supply chain manager','procurement officer','procurement manager','procurement specialist','stores officer','supplies officer','materials manager','inventory manager','transport manager','fleet manager','distribution manager','warehousing manager','stock controller','logistics'];
+
+const NURSE_INC = ['staff nurse','registered nurse','rgn'];
+const NURSE_EXC = ['assistant','support worker','student','trainee','apprentice','mental health','research','community','district','school','specialist','consultant','practitioner','advanced'];
+const MH_INC    = ['mental health nurse','rmn','registered mental health','psychiatric nurse','mental health practitioner'];
+const MH_EXC    = ['support worker','assistant','student','trainee'];
+const RN_INC    = ['research nurse','clinical research nurse','senior research nurse','research sister'];
+const FEL_INC   = ['clinical fellow','junior clinical fellow','senior clinical fellow','foundation year 1','foundation year 2','fy1','fy2','fy3','st1','st2','st3','st4','ct1','ct2','ct3','trust doctor','specialty doctor','specialty registrar','core trainee','associate specialist','sas doctor','foundation doctor'];
+const COD_INC   = ['clinical coder','clinical coding','coding auditor','clinical coding manager','senior clinical coder','lead clinical coder','clinical coding officer','clinical coding analyst','chief clinical coder'];
+const DIET_INC  = ['dietitian','dietician','community dietitian','specialist dietitian','paediatric dietitian','senior dietitian','lead dietitian','renal dietitian','oncology dietitian','clinical dietitian'];
+const MICRO_INC = ['biomedical scientist microbiology','microbiologist','microbiology scientist','consultant microbiologist','clinical microbiologist','specialist biomedical scientist microbiology','senior biomedical scientist microbiology','microbiology'];
+const PHLEB_INC = ['phlebotomist','phlebotomy','lead phlebotomist','senior phlebotomist','phlebotomy team leader','chief phlebotomist','community phlebotomist','phlebotomy supervisor','phlebotomy manager'];
+const RES_INC   = ['research assistant','research associate','research practitioner','research officer','clinical research practitioner','trial coordinator','study coordinator','research coordinator','research fellow','research support officer','clinical research assistant'];
+const RES_EXC   = ['research nurse','research midwife','research manager','research director'];
+const SW2_INC   = ['social worker','senior social worker','amhp','approved mental health professional','children social worker','adult social worker','community social worker','statutory social worker','qualified social worker','practice educator','social work practitioner'];
+const SW2_EXC   = ['support worker','healthcare assistant','admin','administrator'];
+
+// ── CATEGORIES ────────────────────────────────────────────────
+const CATS = [
+  {id:'admin-out', label:'Admin Outside London',          kw:ADMIN_KW, loc:'',exLoc:'london',  minBand:5,sal:32000,group:'Admin',          inc:ADMIN_INC,exc:ADMIN_EXC},
+  {id:'admin-lon', label:'Admin in London',               kw:ADMIN_KW, loc:'London',            minBand:5,sal:32000,group:'Admin',          inc:ADMIN_INC,exc:ADMIN_EXC},
+  {id:'sw-out',    label:'Support Worker Outside London', kw:SW_KW,    loc:'',exLoc:'london',  minBand:3,sal:0,ft:true,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-lon',    label:'Support Worker in London',      kw:SW_KW,    loc:'London',           minBand:3,sal:0,ft:true,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-wm',     label:'Support Worker West Midlands',  kw:SW_KW,    loc:'West Midlands',    minBand:3,sal:0,ft:true,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-wales',  label:'Support Worker in Wales',       kw:SW_KW,    loc:'Wales',            minBand:3,sal:0,ft:true,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-manc',   label:'Support Worker Manchester',     kw:SW_KW,    loc:'Manchester',       minBand:3,sal:0,ft:true,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-wy',     label:'Support Worker W Yorkshire',    kw:SW_KW,    loc:'Leeds',            minBand:3,sal:0,ft:true,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'sw-ey',     label:'Support Worker E Yorkshire',    kw:SW_KW,    loc:'Hull',             minBand:3,sal:0,ft:true,group:'Support Worker',inc:SW_INC,exc:SW_EXC},
+  {id:'nurse',     label:'Staff Nurse',                   kw:['staff nurse','registered nurse'],                             loc:'',minBand:5,maxBand:5,sal:29970,group:'Nursing',  inc:NURSE_INC,exc:NURSE_EXC},
+  {id:'mh-nurse',  label:'Mental Health Nurse',           kw:['mental health nurse','psychiatric nurse','rmn'],              loc:'',group:'Nursing',  inc:MH_INC,  exc:MH_EXC},
+  {id:'res-nurse', label:'Research Nurse',                kw:['research nurse','clinical research nurse'],                   loc:'',group:'Nursing',  inc:RN_INC},
+  {id:'fellow',    label:'Clinical Fellow',               kw:['clinical fellow','junior clinical fellow','trust doctor','foundation year'], loc:'',group:'Clinical', inc:FEL_INC, exc:['senior clinical fellow','consultant','registrar','specialist','associate specialist','sas doctor','specialty doctor','specialty registrar','anaesthetics','surgery','medicine']},
+  {id:'coder',     label:'Clinical Coder',                kw:['clinical coder','clinical coding'],                           loc:'',group:'Clinical', inc:COD_INC},
+  {id:'diet',      label:'Dietician',                     kw:['dietitian','dietician'],                                      loc:'',group:'Clinical', inc:DIET_INC},
+  {id:'micro',     label:'Microbiology',                   kw:['microbiology','microbiologist'],                              loc:'',group:'Clinical', inc:MICRO_INC},
+  {id:'phleb',     label:'Phlebotomist Leader',           kw:['phlebotomist','phlebotomy'],                                  loc:'',group:'Clinical', inc:PHLEB_INC},
+  {id:'res-asst',  label:'Research Assistant',            kw:['research assistant','clinical research assistant','research support assistant','research administrator','research coordinator','clinical trials assistant','research practitioner','research support officer','research technician','study coordinator','research data assistant','patient recruitment assistant'], loc:'',group:'Clinical', inc:RES_INC, exc:RES_EXC},
+  {id:'sw3',       label:'Social Worker',                  kw:['social worker','amhp'],                                      loc:'',group:'Clinical', inc:SW2_INC, exc:SW2_EXC},
+  {id:'data',      label:'Data Analyst',                  kw:DATA_KW,  loc:'',group:'Professional',inc:DATA_INC, exc:DATA_EXC},
+  {id:'bi',        label:'BI Analyst',                    kw:BI_KW,    loc:'',group:'Professional',inc:BI_INC},
+  {id:'fin',       label:'Finance',                       kw:FIN_KW,   loc:'',group:'Professional',inc:FIN_INC,  exc:FIN_EXC},
+  {id:'hr',        label:'HR',                           kw:HR_KW,    loc:'',group:'Professional',inc:HR_INC,   exc:HR_EXC},
+  {id:'it',        label:'IT / Engineering',             kw:IT_KW,    loc:'',group:'Professional',inc:IT_INC,   exc:IT_EXC},
+  {id:'pm',        label:'Project Manager',              kw:PM_KW,    loc:'',group:'Professional',inc:PM_INC,   exc:PM_EXC},
+  {id:'ba',        label:'Business Analyst',             kw:BA_KW,    loc:'',group:'Professional',inc:BA_INC,   exc:BA_EXC},
+  {id:'log',       label:'Logistics',                    kw:LOG_KW,   loc:'',group:'Professional',inc:LOG_INC},
+  {id:'coord',     label:'Coordinator',                  kw:COORD_KW, loc:'',group:'Professional',inc:COORD_INC},
+  {id:'est',       label:'Estates',                      kw:EST_KW,   loc:'',group:'Professional',inc:EST_INC},
+];
+
+// ── HANDLER ───────────────────────────────────────────────────
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin','*');
-  res.setHeader('Access-Control-Allow-Methods','GET,OPTIONS');
-  res.setHeader('Cache-Control','public, max-age=1800');
-  if(req.method==='OPTIONS'){res.status(200).end();return;}
+  res.setHeader('Access-Control-Allow-Origin',  '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Cache-Control',                'public, max-age=1800');
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
-  const {category, page=1}=req.query;
-  const pg=parseInt(page), per=20;
+  const { category, page = '1' } = req.query;
+  const pg  = Math.max(1, parseInt(page) || 1);
+  const per = 20;
 
-  if(!category){
-    return res.status(200).json({fetchedAt:new Date().toISOString(),
-      total:0,page:1,pages:0,jobs:[]});
+  if (!category) {
+    return res.status(200).json({ fetchedAt: new Date().toISOString(), total:0, page:1, pages:0, jobs:[] });
   }
 
-  const cat=CATS.find(c=>c.label===category||c.id===category);
-  if(!cat) return res.status(404).json({error:'Unknown category'});
+  const cat = CATS.find(c => c.label === category || c.id === category);
+  if (!cat) return res.status(404).json({ error: 'Unknown category' });
 
-  // Fetch ALL pages upfront, sort by date, then paginate ourselves
-  // This guarantees page 1 = newest jobs, page 2 = next newest, etc
-  const cacheAllKey=`${cat.id}-all-v5`; // v5 - AfC only, fullTime for SW, minSalary band3+
-  let allFiltered=[];
+  const all   = await getCategoryJobs(cat);
+  const total = all.length;
+  const pages = Math.max(1, Math.ceil(total / per));
+  const start = (pg - 1) * per;
 
-  const cachedAll=CACHE.get(cacheAllKey);
-  if(cachedAll && Date.now()-cachedAll.at<TTL){
-    allFiltered=cachedAll.jobs;
-  } else {
-    // Fetch up to 20 NHS pages to collect all available jobs
-    const seen=new Set(), raw=[];
-    const fetchOpts={
-      minSalary: cat.minSalary||0,
-      fullTime: cat.fullTime||false
-    };
-    for(let p=1; p<=20; p++){
-      const pageJobs=await fetchPage(cat.kw, cat.loc||'', p, fetchOpts);
-      if(!pageJobs.length) break;
-      for(const j of pageJobs){ if(seen.has(j.id)) continue; seen.add(j.id); raw.push(j); }
-      if(pageJobs.length<8) break; // last page
-    }
-
-    allFiltered=applyFilter(raw, cat);
-
-    // Sort ALL jobs by date - newest first
-    allFiltered.sort((a,b)=>{
-      const da=parseDate(a.postedDate);
-      const db=parseDate(b.postedDate);
-      if(!da && !db) return 0;
-      if(!da) return 1;  // no date goes to end
-      if(!db) return -1;
-      return db.localeCompare(da); // newest first
-    });
-
-    CACHE.set(cacheAllKey,{at:Date.now(),jobs:allFiltered});
-  }
-
-  // Now paginate the sorted results ourselves
-  const total=allFiltered.length;
-  const pages=Math.ceil(total/per);
-  const start=(pg-1)*per;
-  const jobs=allFiltered.slice(start, start+per);
-
-  const data={
-    fetchedAt:new Date().toISOString(),
-    total, page:pg, pages,
-    jobs
-  };
-
-  return res.status(200).json(data);
+  return res.status(200).json({
+    fetchedAt: new Date().toISOString(),
+    total, page: pg, pages,
+    jobs: all.slice(start, start + per).map(j => ({ ...j, category: cat.label, group: cat.group })),
+  });
 }
